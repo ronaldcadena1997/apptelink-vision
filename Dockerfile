@@ -6,14 +6,18 @@ WORKDIR /app
 # Copiar package files
 COPY package*.json ./
 
-# Instalar dependencias
-RUN npm install
+# Instalar dependencias globales y del proyecto
+RUN npm install -g @expo/cli && \
+    npm install
 
 # Copiar código fuente
 COPY . .
 
-# Build de la aplicación web
-RUN npx expo export:web
+# Dar permisos a node_modules/.bin
+RUN chmod -R +x node_modules/.bin || true
+
+# Build de la aplicación web usando el script de package.json
+RUN npm run build
 
 # Stage 2: Servidor
 FROM node:18-alpine
