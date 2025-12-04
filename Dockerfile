@@ -12,8 +12,10 @@ RUN npm install
 # Copiar código fuente
 COPY . .
 
-# Construir aplicación web usando el script de package.json
-# Esto usa el Expo CLI local del proyecto
+# Dar permisos de ejecución a binarios de node_modules
+RUN chmod -R +x node_modules/.bin/ 2>/dev/null || true
+
+# Construir aplicación web
 RUN npm run build
 
 # Stage 2: Servidor
