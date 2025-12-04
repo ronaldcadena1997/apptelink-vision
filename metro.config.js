@@ -1,18 +1,24 @@
 const { getDefaultConfig } = require('expo/metro-config');
+const path = require('path');
 
 const config = getDefaultConfig(__dirname);
 
-// Configurar projectRoot y watchFolders para evitar problemas con módulos globales
+// Configurar projectRoot y watchFolders
 config.projectRoot = __dirname;
-config.watchFolders = [__dirname];
+config.watchFolders = [
+  __dirname,
+  // Incluir node_modules de expo para que Metro pueda acceder a @expo/cli
+  path.join(__dirname, 'node_modules'),
+  path.join(__dirname, 'node_modules', 'expo', 'node_modules'),
+];
 
-// Asegurar que Metro solo busque en el proyecto
+// Configurar resolver para incluir todos los node_modules necesarios
 config.resolver = {
   ...config.resolver,
-  blockList: [
-    // Bloquear acceso a módulos globales fuera del proyecto
-    /.*\/node_modules\/.*\/node_modules\/.*/,
-  ],
+  // Permitir acceso a módulos anidados de expo
+  extraNodeModules: {
+    ...config.resolver.extraNodeModules,
+  },
 };
 
 module.exports = config;
