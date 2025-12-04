@@ -19,6 +19,25 @@ from datetime import datetime
 import base64
 import threading
 import time
+import requests
+
+# Importar configuración centralizada
+try:
+    from config import (
+        NUCs, CAMARAS_CONFIGURADAS, CAMARAS_DICT,
+        obtener_nuc_por_camara, obtener_info_camara,
+        listar_camaras_por_nuc, obtener_resumen_config,
+        USUARIO_CAMARAS, CONTRASENA_CAMARAS
+    )
+    USAR_CONFIG_FILE = True
+except ImportError:
+    # Si no existe config.py, usar configuración por variables de entorno (comportamiento original)
+    USAR_CONFIG_FILE = False
+    NUCs = {}
+    CAMARAS_CONFIGURADAS = []
+    CAMARAS_DICT = {}
+    USUARIO_CAMARAS = os.getenv('USUARIO_CAMARAS', 'admin')
+    CONTRASENA_CAMARAS = os.getenv('CONTRASENA_CAMARAS', 'citikold.2020')
 
 app = Flask(__name__)
 CORS(app)  # Permitir peticiones desde cualquier origen
@@ -27,10 +46,164 @@ CORS(app)  # Permitir peticiones desde cualquier origen
 streams_activos = {}
 
 # ============================================
+# CONFIGURACIÓN DE PROXY (Backend en Servidor)
+# ============================================
+# Si no se usa config.py, leer desde variables de entorno
+if not USAR_CONFIG_FILE:
+    # Soporte para múltiples NUCs
+    # Formato: NUC_URLS=url1,url2,url3 o NUC_URLS=nombre1:url1,nombre2:url2
+    NUC_URLS_STR = os.getenv('NUC_URLS', os.getenv('NUC_URL', None))
+    MODO_PROXY = NUC_URLS_STR is not None
+    
+    if MODO_PROXY:
+        # Parsear lista de NUCs
+        nucs_list = [n.strip() for n in NUC_URLS_STR.split(',')]
+        for nuc in nucs_list:
+            if ':' in nuc:
+                # Formato: nombre:url
+                nombre, url = nuc.split(':', 1)
+                NUCs[nombre.strip()] = url.strip()
+            else:
+                # Formato: url (nombre por defecto)
+                nombre = f"nuc_{len(NUCs) + 1}"
+                NUCs[nombre] = nuc.strip()
+    
+    # IPs de cámaras configuradas en Railway (variables de entorno)
+    CAMARAS_IPS_STR = os.getenv('CAMARAS_IPS', '')
+    CAMARAS_CONFIGURADAS = [ip.strip() for ip in CAMARAS_IPS_STR.split(',') if ip.strip()]
+else:
+    MODO_PROXY = len(NUCs) > 0
+
+# Mostrar configuración cargada
+if USAR_CONFIG_FILE:
+    print("📋 Usando archivo de configuración: config.py")
+else:
+    print("📋 Usando variables de entorno")
+
+if CAMARAS_CONFIGURADAS:
+    print(f"📹 IPs de cámaras configuradas: {len(CAMARAS_CONFIGURADAS)}")
+    for ip in CAMARAS_CONFIGURADAS:
+        info = obtener_info_camara(ip) if USAR_CONFIG_FILE else {'nombre': f'Cámara {ip}'}
+        print(f"   - {ip}: {info.get('nombre', '')}")
+else:
+    print("📹 No hay IPs de cámaras configuradas (se detectarán automáticamente)")
+
+if MODO_PROXY:
+    print(f"🔗 Modo PROXY activado. NUCs configurados: {len(NUCs)}")
+    for nombre, url in NUCs.items():
+        print(f"   - {nombre}: {url}")
+else:
+    print("🏠 Modo LOCAL activado. Acceso directo a cámaras.")
+
+def seleccionar_nuc(ip_camara=None, nuc_id=None):
+    """Selecciona el NUC apropiado basado en IP de cámara o ID de NUC"""
+    if not MODO_PROXY or not NUCs:
+        return None
+    
+    # Si se especifica un NUC por ID
+    if nuc_id and nuc_id in NUCs:
+        return NUCs[nuc_id]
+    
+    # Si se usa config.py, usar función del módulo
+    if USAR_CONFIG_FILE and ip_camara:
+        return obtener_nuc_por_camara(ip_camara)
+    
+    # Si se especifica IP de cámara, intentar mapear a NUC
+    if ip_camara:
+        # Mapeo simple: basado en rango de IP
+        for nombre, url in NUCs.items():
+            # Extraer IP base del NUC de la URL
+            try:
+                nuc_ip = url.split('//')[1].split(':')[0]
+                # Si la IP de la cámara está en el mismo rango (primeros 3 octetos)
+                if ip_camara.rsplit('.', 1)[0] == nuc_ip.rsplit('.', 1)[0]:
+                    return url
+            except:
+                pass
+    
+    # Por defecto: usar el primer NUC
+    return list(NUCs.values())[0] if NUCs else None
+
+def hacer_proxy(endpoint, method='GET', data=None, params=None, files=None, nuc_url=None, ip_camara=None, nuc_id=None):
+    """Hace proxy de la petición al NUC local"""
+    if not MODO_PROXY:
+        return None  # No está en modo proxy
+    
+    # Seleccionar NUC si no se especifica
+    if not nuc_url:
+        nuc_url = seleccionar_nuc(ip_camara, nuc_id)
+        if not nuc_url:
+            return {"success": False, "error": "No hay NUCs disponibles"}
+    
+    try:
+        url = f"{nuc_url}{endpoint}"
+        if method == 'GET':
+            response = requests.get(url, params=params, timeout=30)
+        elif method == 'POST':
+            if files:
+                response = requests.post(url, data=data, files=files, params=params, timeout=30)
+            else:
+                response = requests.post(url, json=data, params=params, timeout=30)
+        elif method == 'PUT':
+            response = requests.put(url, json=data, params=params, timeout=30)
+        elif method == 'DELETE':
+            response = requests.delete(url, params=params, timeout=30)
+        else:
+            return None
+        
+        if response.status_code == 200:
+            # Intentar parsear como JSON, si falla devolver texto
+            try:
+                return response.json()
+            except:
+                return {"success": True, "data": response.text}
+        else:
+            return {"success": False, "error": f"Error {response.status_code}"}
+    except Exception as e:
+        print(f"❌ Error en proxy: {e}")
+        return {"success": False, "error": str(e)}
+
+def proxy_endpoint(endpoint_path):
+    """Decorador para hacer proxy automático de endpoints"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # Si está en modo proxy, hacer proxy
+            if MODO_PROXY:
+                # Construir endpoint con parámetros de ruta
+                endpoint = endpoint_path
+                for key, value in kwargs.items():
+                    endpoint = endpoint.replace(f'<{key}>', str(value))
+                    endpoint = endpoint.replace(f'<path:{key}>', str(value))
+                
+                # Obtener método HTTP
+                method = request.method
+                
+                # Obtener datos según el método
+                data = None
+                if method in ['POST', 'PUT']:
+                    if request.is_json:
+                        data = request.get_json()
+                    else:
+                        data = request.form.to_dict()
+                
+                # Hacer proxy
+                resultado = hacer_proxy(endpoint, method, data, request.args, request.files)
+                if resultado:
+                    return jsonify(resultado)
+                return jsonify({"success": False, "error": "No se pudo conectar al NUC"}), 503
+            
+            # Modo local: ejecutar función normal
+            return func(*args, **kwargs)
+        wrapper.__name__ = func.__name__
+        return wrapper
+    return decorator
+
+# ============================================
 # CONFIGURACIÓN
 # ============================================
-USUARIO = "admin"
-CONTRASENA = "citikold.2020"
+# Credenciales de cámaras (se obtienen de config.py o variables de entorno)
+USUARIO = USUARIO_CAMARAS if USAR_CONFIG_FILE else os.getenv('USUARIO_CAMARAS', 'admin')
+CONTRASENA = CONTRASENA_CAMARAS if USAR_CONFIG_FILE else os.getenv('CONTRASENA_CAMARAS', 'citikold.2020')
 CARPETA_INTRUSOS = r"C:\Users\Administrator\Desktop\deteccion_sospechosa"
 CARPETA_INTRUSOS_ALT = r"C:\Users\Administrator\Desktop\acceso\deteccion_sospechosa"
 CARPETA_VIDEOS = r"C:\Users\Administrator\Desktop\videos_intrusion"
@@ -127,14 +300,213 @@ def status():
     return jsonify({
         "status": "online",
         "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "modo": "proxy" if MODO_PROXY else "local",
+        "nucs_disponibles": len(NUCs) if MODO_PROXY else 0
+    })
+
+@app.route('/api/nucs', methods=['GET'])
+def listar_nucs():
+    """Lista los NUCs disponibles"""
+    if not MODO_PROXY:
+        return jsonify({
+            "success": True,
+            "modo": "local",
+            "nucs": []
+        })
+    
+    nucs_info = []
+    for nombre, url in NUCs.items():
+        # Verificar si el NUC está disponible
+        disponible = False
+        try:
+            response = requests.get(f"{url}/api/status", timeout=5)
+            disponible = response.status_code == 200
+        except:
+            pass
+        
+        nucs_info.append({
+            "id": nombre,
+            "url": url,
+            "disponible": disponible
+        })
+    
+    return jsonify({
+        "success": True,
+        "modo": "proxy",
+        "nucs": nucs_info,
+        "total": len(nucs_info)
+    })
+
+@app.route('/api/ip', methods=['GET'])
+def obtener_ip():
+    """Obtiene todas las IPs del servidor (local, pública, VPN)"""
+    import subprocess
+    import requests
+    
+    ips = {
+        "local": None,
+        "publica": None,
+        "tailscale": None,
+        "zerotier": None,
+        "wireguard": None
+    }
+    
+    # IP Local
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ips["local"] = s.getsockname()[0]
+        s.close()
+    except:
+        pass
+    
+    # IP Pública
+    try:
+        response = requests.get("https://api.ipify.org", timeout=5)
+        ips["publica"] = response.text.strip()
+    except:
+        try:
+            response = requests.get("https://ifconfig.me", timeout=5)
+            ips["publica"] = response.text.strip()
+        except:
+            pass
+    
+    # Tailscale
+    try:
+        result = subprocess.run(['tailscale', 'ip', '-4'], 
+                              capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            ips["tailscale"] = result.stdout.strip()
+    except:
+        pass
+    
+    # ZeroTier
+    try:
+        result = subprocess.run(['zerotier-cli', 'listnetworks'], 
+                              capture_output=True, text=True, timeout=2)
+        if result.returncode == 0:
+            # Buscar IP en la salida
+            for line in result.stdout.split('\n'):
+                if '10.' in line or '172.' in line:
+                    parts = line.split()
+                    for part in parts:
+                        if '.' in part and part.count('.') == 3:
+                            ips["zerotier"] = part.split('/')[0]
+                            break
+    except:
+        pass
+    
+    # WireGuard
+    try:
+        result = subprocess.run(['wg', 'show'], 
+                              capture_output=True, text=True, timeout=2)
+        if result.returncode == 0 and 'interface' in result.stdout:
+            # Extraer IP de la interfaz
+            for line in result.stdout.split('\n'):
+                if 'inet' in line:
+                    ips["wireguard"] = line.split()[2].split('/')[0]
+                    break
+    except:
+        pass
+    
+    # IP recomendada (prioridad: Tailscale > ZeroTier > Local > Pública)
+    ip_recomendada = (
+        ips["tailscale"] or 
+        ips["zerotier"] or 
+        ips["local"] or 
+        ips["publica"]
+    )
+    
+    return jsonify({
+        "success": True,
+        "ips": ips,
+        "ip_recomendada": ip_recomendada,
+        "url_recomendada": f"http://{ip_recomendada}:5000" if ip_recomendada else None,
+        "timestamp": datetime.now().isoformat()
     })
 
 @app.route('/api/camaras/detectar', methods=['GET'])
 def detectar_camaras():
     """Detecta cámaras en la red local"""
+    # Si está en modo proxy, hacer proxy al NUC
+    if MODO_PROXY:
+        # Si hay IPs configuradas, usarlas directamente (más rápido)
+        if CAMARAS_CONFIGURADAS:
+            camaras_activas = []
+            for i, ip in enumerate(CAMARAS_CONFIGURADAS):
+                # Verificar si la cámara está accesible usando el puente genérico
+                nuc_url = seleccionar_nuc(ip_camara=ip)
+                if nuc_url:
+                    try:
+                        # Probar acceso a la cámara a través del puente
+                        test_url = f"{nuc_url}/proxy/{ip}:554/stream"
+                        response = requests.get(test_url, timeout=2)
+                        estado = "activa" if response.status_code == 200 else "sin_acceso"
+                    except:
+                        estado = "sin_acceso"
+                else:
+                    estado = "sin_nuc"
+                
+                camaras_activas.append({
+                    "id": i + 1,
+                    "ip": ip,
+                    "url": f"rtsp://{USUARIO}:{CONTRASENA}@{ip}:554/Streaming/Channels/101",
+                    "resolucion": None,
+                    "puertos": [{"puerto": 554, "nombre": "RTSP"}],
+                    "estado": estado,
+                    "nombre": f"Cámara {i + 1}",
+                    "configurada": True
+                })
+            
+            return jsonify({
+                "success": True,
+                "modo": "configurado",
+                "camaras": camaras_activas,
+                "total": len(camaras_activas),
+                "timestamp": datetime.now().isoformat()
+            })
+        
+        # Si no hay IPs configuradas, hacer proxy al NUC para escaneo
+        nuc_id = request.args.get('nuc_id', None)
+        resultado = hacer_proxy('/api/camaras/detectar', 'GET', params=request.args, nuc_id=nuc_id)
+        if resultado:
+            return jsonify(resultado)
+        return jsonify({"success": False, "error": "No se pudo conectar al NUC"}), 503
+    
+    # Modo local: usar IPs configuradas o escanear
     global camaras_cache, ultimo_escaneo
     
+    # Si hay IPs configuradas, usarlas directamente
+    if CAMARAS_CONFIGURADAS:
+        camaras_activas = []
+        for i, ip in enumerate(CAMARAS_CONFIGURADAS):
+            # Probar conexión RTSP
+            exito, url, resolucion = probar_rtsp(ip, USUARIO, CONTRASENA)
+            
+            camaras_activas.append({
+                "id": i + 1,
+                "ip": ip,
+                "url": url if exito else None,
+                "resolucion": resolucion if exito else None,
+                "puertos": [{"puerto": 554, "nombre": "RTSP"}] if exito else [],
+                "estado": "activa" if exito else "sin_acceso",
+                "nombre": f"Cámara {i + 1}",
+                "configurada": True
+            })
+        
+        camaras_cache = camaras_activas
+        ultimo_escaneo = datetime.now().isoformat()
+        
+        return jsonify({
+            "success": True,
+            "modo": "configurado",
+            "camaras": camaras_activas,
+            "total": len(camaras_activas),
+            "timestamp": ultimo_escaneo
+        })
+    
+    # Si no hay IPs configuradas, escanear la red (lógica original)
     ip_local, red = obtener_red_local()
     
     puertos_camara = {
@@ -168,7 +540,8 @@ def detectar_camaras():
                     "resolucion": resolucion,
                     "puertos": disp["puertos"],
                     "estado": "activa",
-                    "nombre": f"Cámara {len(camaras_activas) + 1}"
+                    "nombre": f"Cámara {len(camaras_activas) + 1}",
+                    "configurada": False
                 })
             else:
                 camaras_activas.append({
@@ -178,7 +551,8 @@ def detectar_camaras():
                     "resolucion": None,
                     "puertos": disp["puertos"],
                     "estado": "sin_acceso",
-                    "nombre": f"Cámara {len(camaras_activas) + 1}"
+                    "nombre": f"Cámara {len(camaras_activas) + 1}",
+                    "configurada": False
                 })
     
     camaras_cache = camaras_activas
@@ -186,6 +560,7 @@ def detectar_camaras():
     
     return jsonify({
         "success": True,
+        "modo": "escaneo",
         "ip_local": ip_local,
         "red": f"{red}0/24",
         "total_dispositivos": len(dispositivos),
@@ -202,9 +577,90 @@ def obtener_camaras():
         "ultimo_escaneo": ultimo_escaneo
     })
 
+@app.route('/api/camaras/configuradas', methods=['GET'])
+def obtener_camaras_configuradas():
+    """Obtiene la lista de IPs de cámaras configuradas"""
+    camaras_info = []
+    for ip in CAMARAS_CONFIGURADAS:
+        info = obtener_info_camara(ip) if USAR_CONFIG_FILE else {'nombre': f'Cámara {ip}'}
+        camaras_info.append({
+            'ip': ip,
+            'nombre': info.get('nombre', f'Cámara {ip}'),
+            'nuc': info.get('nuc')
+        })
+    
+    return jsonify({
+        "success": True,
+        "camaras_configuradas": CAMARAS_CONFIGURADAS,
+        "camaras_detalladas": camaras_info,
+        "total": len(CAMARAS_CONFIGURADAS),
+        "modo": "configurado" if CAMARAS_CONFIGURADAS else "automatico",
+        "usando_config_file": USAR_CONFIG_FILE
+    })
+
+@app.route('/api/configuracion', methods=['GET'])
+def obtener_configuracion_completa():
+    """Obtiene la configuración completa (NUCs y cámaras)"""
+    if USAR_CONFIG_FILE:
+        try:
+            resumen = obtener_resumen_config()
+            return jsonify({
+                "success": True,
+                "usando_config_file": True,
+                **resumen
+            })
+        except:
+            pass
+    
+    # Si no usa config.py, retornar información básica
+    return jsonify({
+        "success": True,
+        "usando_config_file": False,
+        "nucs": {
+            "total": len(NUCs),
+            "nucs": [{"id": nombre, "url": url} for nombre, url in NUCs.items()]
+        },
+        "camaras": {
+            "total": len(CAMARAS_CONFIGURADAS),
+            "configuradas": CAMARAS_CONFIGURADAS
+        },
+        "modo": "variables_entorno"
+    })
+
 @app.route('/api/camaras/<ip>/snapshot', methods=['GET'])
 def snapshot_camara(ip):
     """Captura una imagen de la cámara"""
+    # Si está en modo proxy, usar puente genérico o hacer proxy al NUC
+    if MODO_PROXY:
+        # Si hay IPs configuradas, usar puente genérico directamente
+        if CAMARAS_CONFIGURADAS and ip in CAMARAS_CONFIGURADAS:
+            nuc_url = seleccionar_nuc(ip_camara=ip)
+            if nuc_url:
+                try:
+                    # Usar puente genérico para acceder directamente a la cámara
+                    # Intentar obtener snapshot a través de RTSP stream
+                    proxy_url = f"{nuc_url}/proxy/{ip}:554/Streaming/Channels/101"
+                    response = requests.get(proxy_url, timeout=10, stream=True)
+                    if response.status_code == 200:
+                        # Si es video stream, necesitamos procesarlo
+                        # Por ahora, retornar que está disponible
+                        return jsonify({
+                            "success": True,
+                            "ip": ip,
+                            "url": f"rtsp://{USUARIO}:{CONTRASENA}@{ip}:554/Streaming/Channels/101",
+                            "modo": "puente_generico"
+                        })
+                except Exception as e:
+                    print(f"Error accediendo a cámara {ip} vía puente: {e}")
+        
+        # Si no hay IPs configuradas o falló, hacer proxy al NUC (comportamiento original)
+        nuc_id = request.args.get('nuc_id', None)
+        resultado = hacer_proxy(f'/api/camaras/{ip}/snapshot', 'GET', params=request.args, ip_camara=ip, nuc_id=nuc_id)
+        if resultado:
+            return jsonify(resultado)
+        return jsonify({"success": False, "error": "No se pudo conectar al NUC"}), 503
+    
+    # Modo local: ejecutar lógica normal
     urls = [
         f"rtsp://{USUARIO}:{CONTRASENA}@{ip}:554/Streaming/Channels/101",
         f"rtsp://{USUARIO}:{CONTRASENA}@{ip}:554/Streaming/Channels/1",
@@ -325,6 +781,15 @@ def detener_stream(ip):
 @app.route('/api/cercas/<ip_camara>', methods=['GET'])
 def obtener_cercas(ip_camara):
     """Obtiene la configuración de cercas para una cámara específica"""
+    # Si está en modo proxy, hacer proxy al NUC
+    if MODO_PROXY:
+        nuc_id = request.args.get('nuc_id', None)
+        resultado = hacer_proxy(f'/api/cercas/{ip_camara}', 'GET', params=request.args, ip_camara=ip_camara, nuc_id=nuc_id)
+        if resultado:
+            return jsonify(resultado)
+        return jsonify({"success": False, "error": "No se pudo conectar al NUC"}), 503
+    
+    # Modo local: ejecutar lógica normal
     try:
         archivo_config = get_archivo_config(ip_camara)
         
