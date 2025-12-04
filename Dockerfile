@@ -3,23 +3,18 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
-# Instalar Expo CLI globalmente
-RUN npm install -g @expo/cli
-
 # Copiar archivos de dependencias
 COPY package*.json ./
 
-# Instalar dependencias
+# Instalar dependencias (incluye Expo CLI local)
 RUN npm install
 
 # Copiar código fuente
 COPY . .
 
-# Dar permisos de ejecución
-RUN chmod +x node_modules/.bin/* || true
-
-# Construir aplicación web usando Expo CLI directamente
-RUN npx --yes @expo/cli export --platform web
+# Construir aplicación web usando el script de package.json
+# Esto usa el Expo CLI local del proyecto
+RUN npm run build
 
 # Stage 2: Servidor
 FROM node:18-alpine
