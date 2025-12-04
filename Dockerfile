@@ -1,5 +1,5 @@
-# Usar Node 18
-FROM node:18-alpine
+# Stage 1: Build
+FROM node:18-alpine AS builder
 
 WORKDIR /app
 
@@ -9,15 +9,26 @@ COPY package*.json ./
 # Instalar dependencias
 RUN npm install
 
-# Copiar todo el código
+# Copiar código fuente
 COPY . .
 
-# Exponer puerto
-EXPOSE 8081
+# Construir aplicación web
+RUN npm run build
 
-# Variable de entorno para producción
-ENV NODE_ENV=production
+# Stage 2: Servidor
+FROM node:18-alpine
 
-# Iniciar servidor web de Expo
-CMD ["npx", "expo", "start", "--web", "--port", "8081"]
+WORKDIR /app
+
+# Instalar serve
+RUN npm install -g serve
+
+# Copiar build
+COPY --from=builder /app/dist ./dist
+
+# Exponer puerto (Railway usa variable PORT)
+EXPOSE 3000
+
+# Servir archivos estáticos
+CMD serve dist -s -p ${PORT:-3000}
 
