@@ -1,13 +1,15 @@
 {
-  "buildCommand": "expo export:web",
-  "outputDirectory": "web-build",
-  "devCommand": "expo start --web",
+  "buildCommand": "npm install && npx --yes expo export:web",
+  "outputDirectory": "dist",
   "installCommand": "npm install",
   "framework": null,
-  "rewrites": [
+  "routes": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }
