@@ -1,0 +1,106 @@
+====================================================
+       APPTELINK VISION - INSTRUCCIONES DE USO
+====================================================
+
+Este proyecto es una aplicación React Native con Expo 
+que funciona en Android, iOS y Web.
+
+----------------------------------------------------
+REQUISITOS PREVIOS
+----------------------------------------------------
+
+1. Instalar Node.js (versión 18 o superior)
+   - Descargar desde: https://nodejs.org/
+   - Elegir la versión LTS (recomendada)
+
+2. Después de instalar Node.js, reiniciar el ordenador
+
+----------------------------------------------------
+PASOS PARA EJECUTAR LA APLICACIÓN
+----------------------------------------------------
+
+1. Abrir PowerShell o CMD como administrador
+
+2. Navegar a la carpeta del proyecto:
+   cd C:\Users\Administrator\Desktop\proyectowebApptelinkVision
+
+3. Instalar las dependencias:
+   npm install
+
+4. Iniciar la aplicación:
+   npx expo start
+
+5. Se abrirá Expo en el navegador con opciones:
+   - Presionar 'w' para abrir en Web
+   - Escanear el código QR con la app Expo Go (Android/iOS)
+   - Presionar 'a' para Android emulador
+   - Presionar 'i' para iOS simulator
+
+----------------------------------------------------
+CREDENCIALES DE ACCESO (DEMO)
+----------------------------------------------------
+
+Usuario: admin
+Contraseña: admin
+
+----------------------------------------------------
+ESTRUCTURA DEL PROYECTO
+----------------------------------------------------
+
+ApptelinkVision/
+├── App.js                 # Archivo principal con navegación
+├── app.json               # Configuración de Expo
+├── package.json           # Dependencias del proyecto
+├── assets/
+│   ├── logo.png           # Logo de la empresa
+│   ├── icon.png           # Icono de la app
+│   └── splash-icon.png    # Imagen de splash screen
+└── src/
+    └── screens/
+        ├── LoginScreen.js       # Pantalla de inicio de sesión
+        ├── HomeScreen.js        # Menú principal con 4 opciones
+        ├── CamaraScreen.js      # Cámara de vigilancia
+        ├── ConfiguracionScreen.js # Configuración de sectores
+        └── IntrusosScreen.js    # Galería de imágenes de intrusos
+
+----------------------------------------------------
+FUNCIONALIDADES
+----------------------------------------------------
+
+1. LOGIN
+   - Formulario de usuario y contraseña
+   - Logo de Apptelink Vision
+   - Validación de credenciales
+
+2. MENÚ PRINCIPAL (4 opciones)
+   - Cámara de Vigilancia
+   - Configuración de Sectores
+   - Imágenes de Intrusos
+   - Cerrar Sesión
+
+3. CÁMARA DE VIGILANCIA
+   - Vista de cámara en tiempo real (placeholder)
+   - Selección de múltiples cámaras
+   - Controles de grabación y captura
+
+4. CONFIGURACIÓN DE SECTORES
+   - Gestión de zonas de detección
+   - Ajuste de sensibilidad
+   - Horarios de activación
+   - Notificaciones y alertas
+
+5. IMÁGENES DE INTRUSOS
+   - Galería de capturas de alertas
+   - Filtros por estado (pendiente/revisado)
+   - Vista detallada de cada alerta
+   - Marcado de falsa alarma
+
+----------------------------------------------------
+SOPORTE
+----------------------------------------------------
+
+© 2025 Apptelink Vision
+Versión 1.0.0
+
+====================================================
+
