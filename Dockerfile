@@ -1,38 +1,23 @@
-# Stage 1: Build
-FROM node:18-alpine AS builder
-
-WORKDIR /app
-
-# Copiar package files
-COPY package*.json ./
-
-# Instalar dependencias globales y del proyecto
-RUN npm install -g @expo/cli && \
-    npm install
-
-# Copiar código fuente
-COPY . .
-
-# Dar permisos a node_modules/.bin
-RUN chmod -R +x node_modules/.bin || true
-
-# Build de la aplicación web usando el script de package.json
-RUN npm run build
-
-# Stage 2: Servidor
+# Usar Node 18
 FROM node:18-alpine
 
 WORKDIR /app
 
-# Instalar serve para servir archivos estáticos
-RUN npm install -g serve
+# Copiar archivos de dependencias
+COPY package*.json ./
 
-# Copiar build del stage anterior
-COPY --from=builder /app/dist ./dist
+# Instalar dependencias
+RUN npm install
+
+# Copiar todo el código
+COPY . .
 
 # Exponer puerto
-EXPOSE 3000
+EXPOSE 8081
 
-# Comando para servir la app
-CMD ["serve", "dist", "-s", "-l", "3000"]
+# Variable de entorno para producción
+ENV NODE_ENV=production
+
+# Iniciar servidor web de Expo
+CMD ["npx", "expo", "start", "--web", "--port", "8081"]
 
