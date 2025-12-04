@@ -7,7 +7,10 @@ WORKDIR /app
 COPY package*.json ./
 
 # Instalar dependencias (incluye Expo CLI local)
-RUN npm install
+RUN npm install --legacy-peer-deps
+
+# Instalar dependencias faltantes que Metro necesita
+RUN npm install is-arrayish --legacy-peer-deps || true
 
 # Copiar código fuente
 COPY . .
