@@ -67,7 +67,25 @@ except ImportError:
     CONTRASENA_CAMARAS = os.getenv('CONTRASENA_CAMARAS', 'citikold.2020')
 
 app = Flask(__name__)
-CORS(app)  # Permitir peticiones desde cualquier origen
+
+# Configurar CORS explícitamente para permitir peticiones desde cualquier origen
+# Esto es necesario porque el frontend y backend están en diferentes dominios de Railway
+CORS(app, 
+     resources={r"/api/*": {"origins": "*"}},
+     supports_credentials=True,
+     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+
+# Agregar handler explícito para peticiones OPTIONS (preflight)
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = Response()
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
+        response.headers.add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        response.headers.add("Access-Control-Max-Age", "3600")
+        return response
 
 # Diccionario para almacenar streams activos
 streams_activos = {}
