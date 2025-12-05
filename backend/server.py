@@ -21,6 +21,28 @@ import threading
 import time
 import requests
 
+# Configurar proxy para Tailscale userspace-networking
+# Si Tailscale está usando userspace-networking, necesitamos usar proxy SOCKS5
+TAILSCALE_PROXY = None
+try:
+    import socket
+    # Verificar si el proxy SOCKS5 está disponible (puerto 1080)
+    test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    test_socket.settimeout(1)
+    result = test_socket.connect_ex(('127.0.0.1', 1080))
+    test_socket.close()
+    if result == 0:
+        # Proxy disponible, configurar para usar SOCKS5
+        TAILSCALE_PROXY = {
+            'http': 'socks5h://127.0.0.1:1080',
+            'https': 'socks5h://127.0.0.1:1080'
+        }
+        print("✅ Proxy SOCKS5 de Tailscale detectado y configurado")
+    else:
+        print("⚠️  Proxy SOCKS5 no disponible, usando conexiones directas")
+except Exception as e:
+    print(f"⚠️  No se pudo verificar proxy SOCKS5: {e}")
+
 # Importar configuración centralizada
 try:
     from config import (
@@ -140,17 +162,20 @@ def hacer_proxy(endpoint, method='GET', data=None, params=None, files=None, nuc_
         # Timeout más corto para evitar que se cuelgue (15 segundos en lugar de 30)
         timeout = 15 if '/snapshot' in endpoint else 30
         
+        # Usar proxy SOCKS5 si está disponible (Tailscale userspace-networking)
+        proxies = TAILSCALE_PROXY if TAILSCALE_PROXY else None
+        
         if method == 'GET':
-            response = requests.get(url, params=params, timeout=timeout)
+            response = requests.get(url, params=params, timeout=timeout, proxies=proxies)
         elif method == 'POST':
             if files:
-                response = requests.post(url, data=data, files=files, params=params, timeout=timeout)
+                response = requests.post(url, data=data, files=files, params=params, timeout=timeout, proxies=proxies)
             else:
-                response = requests.post(url, json=data, params=params, timeout=timeout)
+                response = requests.post(url, json=data, params=params, timeout=timeout, proxies=proxies)
         elif method == 'PUT':
-            response = requests.put(url, json=data, params=params, timeout=timeout)
+            response = requests.put(url, json=data, params=params, timeout=timeout, proxies=proxies)
         elif method == 'DELETE':
-            response = requests.delete(url, params=params, timeout=timeout)
+            response = requests.delete(url, params=params, timeout=timeout, proxies=proxies)
         else:
             return None
         
@@ -325,7 +350,9 @@ def listar_nucs():
         error_msg = None
         try:
             print(f"🔍 Probando conectividad a NUC: {url}/api/status")
-            response = requests.get(f"{url}/api/status", timeout=10)
+            if TAILSCALE_PROXY:
+                print(f"   Usando proxy SOCKS5 para conexión a través de Tailscale")
+            response = requests.get(f"{url}/api/status", timeout=10, proxies=TAILSCALE_PROXY if TAILSCALE_PROXY else None)
             disponible = response.status_code == 200
             if disponible:
                 print(f"✅ NUC {nombre} está disponible")
@@ -376,7 +403,12 @@ def test_conectividad_nuc():
         # Test 1: Status endpoint
         try:
             print(f"🔍 [TEST] Probando: {url}/api/status")
-            response = requests.get(f"{url}/api/status", timeout=10)
+            print(f"   Railway Tailscale IP: Verificando...")
+            if TAILSCALE_PROXY:
+                print(f"   Usando proxy SOCKS5: {TAILSCALE_PROXY}")
+            # Intentar con timeout más largo y verificar conectividad
+            # Usar proxy si está disponible (Tailscale userspace-networking)
+            response = requests.get(f"{url}/api/status", timeout=30, proxies=TAILSCALE_PROXY if TAILSCALE_PROXY else None)
             resultado["tests"]["status"] = {
                 "success": response.status_code == 200,
                 "status_code": response.status_code,
@@ -709,9 +741,12 @@ def snapshot_camara(ip):
                 # Este endpoint procesa el snapshot usando OpenCV en el NUC
                 snapshot_url = f"{nuc_url}/api/camaras/{ip}/snapshot"
                 print(f"📸 Obteniendo snapshot desde NUC: {snapshot_url}")
+                if TAILSCALE_PROXY:
+                    print(f"   Usando proxy SOCKS5 para conexión a través de Tailscale")
                 
-                # Timeout más corto para evitar que se cuelgue
-                response = requests.get(snapshot_url, timeout=15)
+                # Timeout aumentado para dar más tiempo a través de Tailscale
+                # Usar proxy si está disponible (Tailscale userspace-networking)
+                response = requests.get(snapshot_url, timeout=30, proxies=TAILSCALE_PROXY if TAILSCALE_PROXY else None)
                 
                 if response.status_code == 200:
                     try:

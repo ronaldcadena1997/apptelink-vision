@@ -31,6 +31,7 @@ echo "Esperando a que tailscaled se inicie..."
 sleep 5
 
 echo "[2/3] Conectando a Tailscale con authkey..."
+# En userspace-networking, el proxy SOCKS5 se habilita automáticamente en localhost:1080
 tailscale up --authkey=$TAILSCALE_AUTHKEY --accept-routes --accept-dns=false
 
 # Esperar a que Tailscale se conecte
@@ -45,6 +46,21 @@ if [ -z "$TAILSCALE_IP" ]; then
 else
     echo "✅ Tailscale conectado. IP: $TAILSCALE_IP"
 fi
+
+# Configurar variables de entorno para proxy SOCKS5
+# En userspace-networking, Tailscale expone un proxy SOCKS5 en localhost:1080
+echo ""
+echo "Configurando variables de entorno para proxy SOCKS5..."
+export ALL_PROXY="socks5h://127.0.0.1:1080"
+export HTTP_PROXY="socks5h://127.0.0.1:1080"
+export HTTPS_PROXY="socks5h://127.0.0.1:1080"
+echo "✅ Variables de proxy configuradas:"
+echo "   ALL_PROXY=$ALL_PROXY"
+echo "   HTTP_PROXY=$HTTP_PROXY"
+echo "   HTTPS_PROXY=$HTTPS_PROXY"
+echo ""
+echo "⚠️  NOTA: Python requests puede no usar estas variables automáticamente"
+echo "   El código debe pasar 'proxies' explícitamente a requests.get/post/etc"
 
 echo ""
 echo "=========================================="
