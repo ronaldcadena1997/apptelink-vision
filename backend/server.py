@@ -68,24 +68,30 @@ except ImportError:
 
 app = Flask(__name__)
 
-# Configurar CORS explícitamente para permitir peticiones desde cualquier origen
+# Configurar CORS para permitir todas las peticiones desde cualquier origen
 # Esto es necesario porque el frontend y backend están en diferentes dominios de Railway
-CORS(app, 
-     resources={r"/api/*": {"origins": "*"}},
-     supports_credentials=True,
-     allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
-     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"], "allow_headers": "*"}})
 
-# Agregar handler explícito para peticiones OPTIONS (preflight)
-@app.before_request
-def handle_preflight():
-    if request.method == "OPTIONS":
-        response = Response()
-        response.headers.add("Access-Control-Allow-Origin", "*")
-        response.headers.add("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-        response.headers.add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-        response.headers.add("Access-Control-Max-Age", "3600")
-        return response
+# Agregar headers CORS manualmente a todas las respuestas como respaldo
+@app.after_request
+def after_request(response):
+    # Agregar headers CORS a todas las respuestas
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
+    return response
+
+# Handler explícito para peticiones OPTIONS (preflight)
+@app.route('/api/<path:path>', methods=['OPTIONS'])
+@app.route('/api/status', methods=['OPTIONS'])
+def handle_options(path=None):
+    response = Response()
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
+    response.headers.add('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')
+    return response
 
 # Diccionario para almacenar streams activos
 streams_activos = {}
