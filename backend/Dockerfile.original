@@ -1,20 +1,14 @@
-# Dockerfile con Tailscale para Railway
-# Este Dockerfile instala Tailscale en Railway para que pueda conectarse al NUC
-
+# Usar Python 3.11 como base
 FROM python:3.11-slim
 
 # Directorio de trabajo
 WORKDIR /app
 
-# Instalar dependencias del sistema y Tailscale
+# Instalar solo dependencias mínimas del sistema
 RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     libgomp1 \
-    curl \
     && rm -rf /var/lib/apt/lists/*
-
-# Instalar Tailscale
-RUN curl -fsSL https://tailscale.com/install.sh | sh
 
 # Actualizar pip
 RUN pip install --upgrade pip
@@ -34,12 +28,9 @@ RUN python -c "import requests; print(f'requests version: {requests.__version__}
 # Copiar el resto de archivos
 COPY . .
 
-# Script para iniciar Tailscale y luego el servidor
-COPY start_with_tailscale.sh /app/start_with_tailscale.sh
-RUN chmod +x /app/start_with_tailscale.sh
-
 # Exponer puerto
 EXPOSE 5000
 
-# Comando para iniciar (Tailscale + servidor)
-CMD ["/app/start_with_tailscale.sh"]
+# Comando para iniciar
+CMD ["python", "server.py"]
+
