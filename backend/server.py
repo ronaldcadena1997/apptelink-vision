@@ -783,12 +783,18 @@ def snapshot_camara(ip):
                 # Este endpoint procesa el snapshot usando OpenCV en el NUC
                 snapshot_url = f"{nuc_url}/api/camaras/{ip}/snapshot"
                 print(f"📸 Obteniendo snapshot desde NUC: {snapshot_url}")
+                print(f"   IP de la cámara: {ip}")
+                print(f"   URL del NUC: {nuc_url}")
                 if TAILSCALE_PROXY:
-                    print(f"   Usando proxy SOCKS5 para conexión a través de Tailscale")
+                    print(f"   ✅ Usando proxy SOCKS5: {TAILSCALE_PROXY}")
+                else:
+                    print(f"   ⚠️  NO se está usando proxy SOCKS5 (conexión directa)")
                 
                 # Timeout aumentado para dar más tiempo a través de Tailscale
                 # Usar proxy si está disponible (Tailscale userspace-networking)
+                print(f"   🔄 Iniciando petición al NUC...")
                 response = requests.get(snapshot_url, timeout=30, proxies=TAILSCALE_PROXY if TAILSCALE_PROXY else None)
+                print(f"   ✅ Respuesta recibida: Status {response.status_code}")
                 
                 if response.status_code == 200:
                     try:
@@ -950,6 +956,62 @@ def crear_imagen_error(mensaje):
 @app.route('/api/camaras/<ip>/stream')
 def stream_camara(ip):
     """Stream MJPEG de la cámara"""
+    # Si está en modo proxy, hacer proxy al NUC
+    if MODO_PROXY:
+        nuc_url = seleccionar_nuc(ip_camara=ip)
+        if nuc_url:
+            try:
+                # Usar el endpoint /api/camaras/<ip>/stream del puente genérico
+                stream_url = f"{nuc_url}/api/camaras/{ip}/stream"
+                print(f"📹 Iniciando stream desde NUC: {stream_url}")
+                if TAILSCALE_PROXY:
+                    print(f"   Usando proxy SOCKS5 para conexión a través de Tailscale")
+                
+                # Hacer streaming del stream MJPEG del NUC
+                # Usar stream=True para streaming continuo
+                response = requests.get(stream_url, stream=True, timeout=30, proxies=TAILSCALE_PROXY if TAILSCALE_PROXY else None)
+                
+                if response.status_code == 200:
+                    # Retornar el stream directamente
+                    return Response(
+                        response.iter_content(chunk_size=1024),
+                        mimetype='multipart/x-mixed-replace; boundary=frame',
+                        headers={
+                            'Cache-Control': 'no-cache',
+                            'Connection': 'keep-alive'
+                        }
+                    )
+                else:
+                    print(f"❌ Error del NUC: {response.status_code}")
+                    return Response(
+                        generar_frames_error(f"Error del NUC: {response.status_code}"),
+                        mimetype='multipart/x-mixed-replace; boundary=frame'
+                    )
+            except requests.exceptions.Timeout:
+                print(f"⏱️ Timeout al conectar con NUC para stream: {nuc_url}")
+                return Response(
+                    generar_frames_error("Timeout al conectar con el NUC"),
+                    mimetype='multipart/x-mixed-replace; boundary=frame'
+                )
+            except requests.exceptions.ConnectionError as e:
+                print(f"❌ Error de conexión con NUC para stream: {e}")
+                return Response(
+                    generar_frames_error("No se pudo conectar al NUC"),
+                    mimetype='multipart/x-mixed-replace; boundary=frame'
+                )
+            except Exception as e:
+                print(f"❌ Error inesperado en stream: {e}")
+                return Response(
+                    generar_frames_error(f"Error: {str(e)}"),
+                    mimetype='multipart/x-mixed-replace; boundary=frame'
+                )
+        else:
+            return Response(
+                generar_frames_error("No hay NUCs disponibles"),
+                mimetype='multipart/x-mixed-replace; boundary=frame'
+            )
+    
+    # Modo local: generar frames directamente
     return Response(
         generar_frames(ip),
         mimetype='multipart/x-mixed-replace; boundary=frame'
@@ -958,8 +1020,30 @@ def stream_camara(ip):
 @app.route('/api/camaras/<ip>/stream/stop', methods=['POST'])
 def detener_stream(ip):
     """Detiene el stream de una cámara"""
+    # Si está en modo proxy, detener en el NUC también
+    if MODO_PROXY:
+        nuc_url = seleccionar_nuc(ip_camara=ip)
+        if nuc_url:
+            try:
+                stop_url = f"{nuc_url}/api/camaras/{ip}/stream/stop"
+                requests.post(stop_url, timeout=5, proxies=TAILSCALE_PROXY if TAILSCALE_PROXY else None)
+            except:
+                pass  # Ignorar errores al detener
+    
     streams_activos[ip] = False
     return jsonify({"success": True, "message": f"Stream de {ip} detenido"})
+
+def generar_frames_error(mensaje):
+    """Genera frames de error para el stream"""
+    import numpy as np
+    img = np.zeros((480, 640, 3), dtype=np.uint8)
+    img[:] = (30, 30, 40)
+    cv2.putText(img, mensaje, (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 
+                0.8, (0, 0, 255), 2)
+    _, buffer = cv2.imencode('.jpg', img)
+    frame_bytes = buffer.tobytes()
+    yield (b'--frame\r\n'
+           b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
 # ============================================
 # ENDPOINTS DE CONFIGURACIÓN DE CERCAS (POR CÁMARA)

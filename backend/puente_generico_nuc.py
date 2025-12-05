@@ -280,6 +280,140 @@ def snapshot_camara(ip):
     }), 500
 
 # ============================================
+# STREAM MJPEG
+# ============================================
+
+# Diccionario para almacenar streams activos
+streams_activos_nuc = {}
+
+def generar_frames_stream(ip):
+    """Generador de frames para streaming MJPEG en el NUC"""
+    if not OPENCV_DISPONIBLE:
+        # Enviar imagen de error
+        import numpy as np
+        img = np.zeros((480, 640, 3), dtype=np.uint8)
+        img[:] = (30, 30, 40)
+        cv2.putText(img, "OpenCV no disponible", (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.8, (0, 0, 255), 2)
+        _, buffer = cv2.imencode('.jpg', img)
+        frame_bytes = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        return
+    
+    # Verificar que la IP esté en la red local permitida
+    if not es_ip_local(ip):
+        import numpy as np
+        img = np.zeros((480, 640, 3), dtype=np.uint8)
+        img[:] = (30, 30, 40)
+        cv2.putText(img, f"IP {ip} no permitida", (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.8, (0, 0, 255), 2)
+        _, buffer = cv2.imencode('.jpg', img)
+        frame_bytes = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        return
+    
+    # Credenciales de la cámara
+    usuario = os.getenv('USUARIO_CAMARAS', 'admin')
+    contrasena = os.getenv('CONTRASENA_CAMARAS', 'citikold.2020')
+    
+    # URLs RTSP a probar
+    urls = [
+        f"rtsp://{usuario}:{contrasena}@{ip}:554/Streaming/Channels/101",
+        f"rtsp://{usuario}:{contrasena}@{ip}:554/Streaming/Channels/1",
+        f"rtsp://{usuario}:{contrasena}@{ip}:554/h264/ch1/main/av_stream",
+    ]
+    
+    cap = None
+    for url in urls:
+        try:
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;5000000"
+            cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+            cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+            cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
+            
+            if cap.isOpened():
+                break
+        except:
+            if cap:
+                cap.release()
+            cap = None
+            continue
+    
+    if not cap or not cap.isOpened():
+        # Enviar imagen de error
+        import numpy as np
+        img = np.zeros((480, 640, 3), dtype=np.uint8)
+        img[:] = (30, 30, 40)
+        cv2.putText(img, "No se pudo conectar a la cámara", (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 
+                    0.8, (0, 0, 255), 2)
+        _, buffer = cv2.imencode('.jpg', img)
+        frame_bytes = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+        return
+    
+    streams_activos_nuc[ip] = True
+    
+    try:
+        while streams_activos_nuc.get(ip, False):
+            ret, frame = cap.read()
+            if not ret:
+                # Reconectar si falla
+                cap.release()
+                time.sleep(0.5)
+                try:
+                    cap = cv2.VideoCapture(urls[0], cv2.CAP_FFMPEG)
+                    if not cap.isOpened():
+                        break
+                except:
+                    break
+                continue
+            
+            # Redimensionar para mejor rendimiento (720p)
+            altura, ancho = frame.shape[:2]
+            if ancho > 1280:
+                escala = 1280 / ancho
+                nuevo_ancho = 1280
+                nuevo_alto = int(altura * escala)
+                frame = cv2.resize(frame, (nuevo_ancho, nuevo_alto))
+            
+            # Agregar timestamp
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cv2.putText(frame, timestamp, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 
+                        0.7, (0, 255, 0), 2)
+            cv2.putText(frame, f"IP: {ip}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 
+                        0.5, (0, 255, 255), 1)
+            
+            # Convertir a JPEG
+            _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            frame_bytes = buffer.tobytes()
+            
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+            
+            time.sleep(0.033)  # ~30 FPS
+    finally:
+        if cap:
+            cap.release()
+        streams_activos_nuc.pop(ip, None)
+
+@app.route('/api/camaras/<ip>/stream', methods=['GET'])
+def stream_camara(ip):
+    """Stream MJPEG de la cámara"""
+    return Response(
+        generar_frames_stream(ip),
+        mimetype='multipart/x-mixed-replace; boundary=frame'
+    )
+
+@app.route('/api/camaras/<ip>/stream/stop', methods=['POST'])
+def detener_stream(ip):
+    """Detiene el stream de una cámara"""
+    streams_activos_nuc[ip] = False
+    return jsonify({"success": True, "message": f"Stream de {ip} detenido"})
+
+# ============================================
 # INICIO
 # ============================================
 
