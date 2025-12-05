@@ -21,13 +21,14 @@ echo "[1/3] Iniciando Tailscale daemon..."
 mkdir -p /var/lib/tailscale
 mkdir -p /var/run/tailscale
 
-# Iniciar tailscaled en segundo plano
-tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock &
+# Iniciar tailscaled en segundo plano con userspace-networking
+# Esto no requiere privilegios especiales ni acceso a /dev/net/tun
+tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock --tun=userspace-networking &
 TAILSCALED_PID=$!
 
 # Esperar a que tailscaled se inicie
 echo "Esperando a que tailscaled se inicie..."
-sleep 3
+sleep 5
 
 echo "[2/3] Conectando a Tailscale con authkey..."
 tailscale up --authkey=$TAILSCALE_AUTHKEY --accept-routes --accept-dns=false
