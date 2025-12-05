@@ -71,7 +71,17 @@ export default function CamaraScreen() {
       });
       
       if (response.camaras?.length > 0) {
-        setCamaraSeleccionada(response.camaras[0]);
+        const primeraCamara = response.camaras[0];
+        setCamaraSeleccionada(primeraCamara);
+        
+        // Capturar snapshot automáticamente si la cámara está activa
+        if (primeraCamara.estado === 'activa') {
+          // Capturar snapshot después de un pequeño delay para asegurar que el estado se actualizó
+          setTimeout(() => {
+            capturarSnapshot();
+          }, 500);
+        }
+        
         Alert.alert(
           'Escaneo Completado',
           `Se encontraron ${response.camaras.length} cámara(s) en la red ${response.red}`
@@ -160,6 +170,13 @@ export default function CamaraScreen() {
     setCamaraSeleccionada(camara);
     setSnapshot(null);
     setStreamActivo(false);
+    
+    // Capturar snapshot automáticamente si la cámara está activa
+    if (camara.estado === 'activa') {
+      setTimeout(() => {
+        capturarSnapshot();
+      }, 300);
+    }
   };
 
   // Limpiar stream al desmontar
