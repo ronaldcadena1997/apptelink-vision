@@ -20,7 +20,10 @@ const BACKEND_TUNEL = null; // 'https://TU-TUNEL.ngrok-free.app'; // <-- Descome
 // Opción 3: Backend en Railway (PRODUCCIÓN) - ✅ USA ESTE PARA PRODUCCIÓN
 // ⚠️ IMPORTANTE: Reemplaza con la URL real de tu backend en Railway
 // Obtén la URL en: Railway → Tu Servicio → Settings → Networking → Public Domain
-const BACKEND_RAILWAY = 'https://apptelink-vision-production.up.railway.app';
+// Si el frontend y backend están en el mismo proyecto, puedes usar la misma URL base
+const BACKEND_RAILWAY = process.env.REACT_APP_API_URL || 
+                        process.env.VITE_API_URL || 
+                        'https://apptelink-vision-production.up.railway.app';
 
 // Seleccionar backend según el entorno
 // Para producción web: usar Railway (el backend en Railway se conecta al NUC vía Tailscale)
@@ -45,6 +48,30 @@ if (FORZAR_RAILWAY || (isWeb && !isLocalhost)) {
   console.log('📍 Hostname actual:', window.location?.hostname || 'N/A');
   console.log('ℹ️  El puente genérico del NUC solo tiene /api/status');
   console.log('ℹ️  Los endpoints /api/camaras/* están en Railway');
+  
+  // Verificar que el backend esté accesible (solo en navegador)
+  if (isWeb && typeof fetch !== 'undefined') {
+    fetch(`${BACKEND_RAILWAY}/api/status`)
+      .then(res => {
+        if (res.ok) {
+          console.log('✅ Backend en Railway está accesible');
+          return res.json();
+        } else {
+          console.warn('⚠️  Backend en Railway responde pero con error:', res.status);
+          return null;
+        }
+      })
+      .then(data => {
+        if (data) {
+          console.log('📊 Estado del backend:', data);
+        }
+      })
+      .catch(err => {
+        console.error('❌ No se puede conectar al backend en Railway:', err.message);
+        console.error('   Verifica que la URL sea correcta:', BACKEND_RAILWAY);
+        console.error('   Prueba directamente: https://apptelink-vision-production.up.railway.app/api/status');
+      });
+  }
 } else {
   // Solo usar local si es localhost explícito (desarrollo)
   API_BASE_URL = BACKEND_TUNEL || BACKEND_LOCAL;
