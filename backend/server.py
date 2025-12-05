@@ -137,17 +137,20 @@ def hacer_proxy(endpoint, method='GET', data=None, params=None, files=None, nuc_
     
     try:
         url = f"{nuc_url}{endpoint}"
+        # Timeout más corto para evitar que se cuelgue (15 segundos en lugar de 30)
+        timeout = 15 if '/snapshot' in endpoint else 30
+        
         if method == 'GET':
-            response = requests.get(url, params=params, timeout=30)
+            response = requests.get(url, params=params, timeout=timeout)
         elif method == 'POST':
             if files:
-                response = requests.post(url, data=data, files=files, params=params, timeout=30)
+                response = requests.post(url, data=data, files=files, params=params, timeout=timeout)
             else:
-                response = requests.post(url, json=data, params=params, timeout=30)
+                response = requests.post(url, json=data, params=params, timeout=timeout)
         elif method == 'PUT':
-            response = requests.put(url, json=data, params=params, timeout=30)
+            response = requests.put(url, json=data, params=params, timeout=timeout)
         elif method == 'DELETE':
-            response = requests.delete(url, params=params, timeout=30)
+            response = requests.delete(url, params=params, timeout=timeout)
         else:
             return None
         
@@ -630,35 +633,61 @@ def obtener_configuracion_completa():
 @app.route('/api/camaras/<ip>/snapshot', methods=['GET'])
 def snapshot_camara(ip):
     """Captura una imagen de la cámara"""
-    # Si está en modo proxy, usar puente genérico o hacer proxy al NUC
+    # Si está en modo proxy, usar puente genérico directamente
     if MODO_PROXY:
-        # Si hay IPs configuradas, usar puente genérico directamente
-        if CAMARAS_CONFIGURADAS and ip in CAMARAS_CONFIGURADAS:
-            nuc_url = seleccionar_nuc(ip_camara=ip)
-            if nuc_url:
-                try:
-                    # Usar puente genérico para acceder directamente a la cámara
-                    # Intentar obtener snapshot a través de RTSP stream
-                    proxy_url = f"{nuc_url}/proxy/{ip}:554/Streaming/Channels/101"
-                    response = requests.get(proxy_url, timeout=10, stream=True)
-                    if response.status_code == 200:
-                        # Si es video stream, necesitamos procesarlo
-                        # Por ahora, retornar que está disponible
-                        return jsonify({
-                            "success": True,
-                            "ip": ip,
-                            "url": f"rtsp://{USUARIO}:{CONTRASENA}@{ip}:554/Streaming/Channels/101",
-                            "modo": "puente_generico"
-                        })
-                except Exception as e:
-                    print(f"Error accediendo a cámara {ip} vía puente: {e}")
+        nuc_url = seleccionar_nuc(ip_camara=ip)
+        if nuc_url:
+            try:
+                # Usar el endpoint /api/camaras/<ip>/snapshot del puente genérico
+                # Este endpoint procesa el snapshot usando OpenCV en el NUC
+                snapshot_url = f"{nuc_url}/api/camaras/{ip}/snapshot"
+                print(f"📸 Obteniendo snapshot desde NUC: {snapshot_url}")
+                
+                # Timeout más corto para evitar que se cuelgue
+                response = requests.get(snapshot_url, timeout=15)
+                
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                        if data.get('success') and data.get('image'):
+                            # Retornar directamente la respuesta del puente genérico
+                            return jsonify(data)
+                        else:
+                            print(f"⚠️ Respuesta del NUC sin imagen: {data}")
+                            return jsonify(data), response.status_code
+                    except ValueError:
+                        # Si no es JSON, retornar el contenido tal cual
+                        return Response(response.content, mimetype=response.headers.get('Content-Type', 'application/json'))
+                else:
+                    print(f"❌ Error del NUC: {response.status_code} - {response.text}")
+                    return jsonify({
+                        "success": False,
+                        "error": f"Error del NUC: {response.status_code}"
+                    }), response.status_code
+                    
+            except requests.exceptions.Timeout:
+                print(f"⏱️ Timeout al conectar con NUC: {nuc_url}")
+                return jsonify({
+                    "success": False,
+                    "error": "Timeout al conectar con el NUC. Verifica que el puente genérico esté corriendo."
+                }), 504
+            except requests.exceptions.ConnectionError as e:
+                print(f"❌ Error de conexión con NUC: {e}")
+                return jsonify({
+                    "success": False,
+                    "error": f"No se pudo conectar al NUC en {nuc_url}. Verifica Tailscale y que el puente esté corriendo."
+                }), 503
+            except Exception as e:
+                print(f"❌ Error inesperado: {e}")
+                return jsonify({
+                    "success": False,
+                    "error": str(e)
+                }), 500
         
-        # Si no hay IPs configuradas o falló, hacer proxy al NUC (comportamiento original)
-        nuc_id = request.args.get('nuc_id', None)
-        resultado = hacer_proxy(f'/api/camaras/{ip}/snapshot', 'GET', params=request.args, ip_camara=ip, nuc_id=nuc_id)
-        if resultado:
-            return jsonify(resultado)
-        return jsonify({"success": False, "error": "No se pudo conectar al NUC"}), 503
+        return jsonify({
+            "success": False,
+            "error": "No hay NUCs disponibles para esta cámara"
+        }), 503
     
     # Modo local: ejecutar lógica normal
     urls = [
