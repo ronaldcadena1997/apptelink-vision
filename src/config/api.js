@@ -26,19 +26,30 @@ const BACKEND_RAILWAY = 'https://apptelink-vision-production.up.railway.app';
 // Para producción web: usar Railway (el backend en Railway se conecta al NUC vía Tailscale)
 // Para desarrollo local: usar IP local del NUC
 
+// ⚠️ CONFIGURACIÓN: Forzar uso de Railway
+// Cambia a false solo si quieres usar el backend local para desarrollo
+const FORZAR_RAILWAY = true;
+
 // Detectar si estamos en producción (web) o desarrollo
+// IMPORTANTE: El puente genérico del NUC solo tiene /api/status
+// Los endpoints /api/camaras/* están en Railway, por eso debemos usar Railway
 const isProduction = isWeb && !isLocalhost && window.location.hostname !== 'localhost';
 
 // Seleccionar backend automáticamente
 let API_BASE_URL;
-if (isProduction) {
-  // Producción: usar Railway
+if (FORZAR_RAILWAY || (isWeb && !isLocalhost)) {
+  // FORZAR RAILWAY o si es web y NO es localhost → usar Railway
+  // El puente genérico del NUC NO tiene los endpoints /api/camaras/*
   API_BASE_URL = BACKEND_RAILWAY;
-  console.log('🌐 Usando backend en Railway:', BACKEND_RAILWAY);
+  console.log('🌐 [RAILWAY] Usando backend en Railway:', BACKEND_RAILWAY);
+  console.log('📍 Hostname actual:', window.location?.hostname || 'N/A');
+  console.log('ℹ️  El puente genérico del NUC solo tiene /api/status');
+  console.log('ℹ️  Los endpoints /api/camaras/* están en Railway');
 } else {
-  // Desarrollo: usar local o túnel
+  // Solo usar local si es localhost explícito (desarrollo)
   API_BASE_URL = BACKEND_TUNEL || BACKEND_LOCAL;
-  console.log('🏠 Usando backend local:', API_BASE_URL);
+  console.log('🏠 [LOCAL] Usando backend local:', API_BASE_URL);
+  console.warn('⚠️  En desarrollo local, asegúrate de que el backend local tenga los endpoints /api/camaras/*');
 }
 
 // Exportar la URL seleccionada
