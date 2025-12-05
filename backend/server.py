@@ -570,11 +570,24 @@ def detectar_camaras():
                 nuc_url = seleccionar_nuc(ip_camara=ip)
                 if nuc_url:
                     try:
-                        # Probar acceso a la cámara a través del puente
-                        test_url = f"{nuc_url}/proxy/{ip}:554/stream"
-                        response = requests.get(test_url, timeout=2)
-                        estado = "activa" if response.status_code == 200 else "sin_acceso"
-                    except:
+                        # Probar acceso a la cámara a través del puente usando el endpoint de snapshot
+                        # Este es el endpoint que existe en puente_generico_nuc.py
+                        test_url = f"{nuc_url}/api/camaras/{ip}/snapshot"
+                        # Usar proxy SOCKS5 si está disponible
+                        response = requests.get(test_url, timeout=5, proxies=TAILSCALE_PROXY if TAILSCALE_PROXY else None)
+                        if response.status_code == 200:
+                            data = response.json()
+                            estado = "activa" if data.get("success", False) else "sin_acceso"
+                        else:
+                            estado = "sin_acceso"
+                    except requests.exceptions.Timeout:
+                        print(f"⏱️ Timeout al verificar cámara {ip} a través de NUC")
+                        estado = "sin_acceso"
+                    except requests.exceptions.ConnectionError as e:
+                        print(f"❌ Error de conexión al verificar cámara {ip}: {e}")
+                        estado = "sin_acceso"
+                    except Exception as e:
+                        print(f"❌ Error al verificar cámara {ip}: {e}")
                         estado = "sin_acceso"
                 else:
                     estado = "sin_nuc"
