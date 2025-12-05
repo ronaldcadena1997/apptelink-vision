@@ -32,9 +32,9 @@ echo "Esperando a que tailscaled se inicie y el proxy SOCKS5 esté disponible...
 sleep 8
 
 echo "[2/3] Conectando a Tailscale con authkey..."
-# En userspace-networking, necesitamos habilitar el proxy SOCKS5 explícitamente
-# El proxy SOCKS5 se habilita con --socks5-server
-tailscale up --authkey=$TAILSCALE_AUTHKEY --accept-routes --accept-dns=false --socks5-server=localhost:1080
+# El proxy SOCKS5 ya está habilitado en tailscaled con --socks5-server
+# tailscale up NO acepta el flag --socks5-server
+tailscale up --authkey=$TAILSCALE_AUTHKEY --accept-routes --accept-dns=false
 
 # Esperar a que Tailscale se conecte
 echo "Esperando conexión de Tailscale..."
