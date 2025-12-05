@@ -10,11 +10,20 @@ RUN apt-get update && apt-get install -y \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copiar archivos de dependencias
+# Actualizar pip
+RUN pip install --upgrade pip
+
+# Copiar archivos de dependencias primero
 COPY requirements.txt .
+
+# Verificar que requirements.txt existe y tiene contenido
+RUN cat requirements.txt
 
 # Instalar dependencias Python
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Verificar que requests está instalado
+RUN python -c "import requests; print(f'requests version: {requests.__version__}')"
 
 # Copiar el resto de archivos
 COPY . .
