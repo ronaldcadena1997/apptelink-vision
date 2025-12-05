@@ -322,16 +322,31 @@ def listar_nucs():
     for nombre, url in NUCs.items():
         # Verificar si el NUC está disponible
         disponible = False
+        error_msg = None
         try:
-            response = requests.get(f"{url}/api/status", timeout=5)
+            print(f"🔍 Probando conectividad a NUC: {url}/api/status")
+            response = requests.get(f"{url}/api/status", timeout=10)
             disponible = response.status_code == 200
-        except:
-            pass
+            if disponible:
+                print(f"✅ NUC {nombre} está disponible")
+            else:
+                error_msg = f"Status code: {response.status_code}"
+                print(f"⚠️ NUC {nombre} responde con status {response.status_code}")
+        except requests.exceptions.Timeout as e:
+            error_msg = f"Timeout: {str(e)}"
+            print(f"⏱️ Timeout al conectar con NUC {nombre}: {url}")
+        except requests.exceptions.ConnectionError as e:
+            error_msg = f"ConnectionError: {str(e)}"
+            print(f"❌ Error de conexión con NUC {nombre}: {url} - {e}")
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            print(f"❌ Error inesperado con NUC {nombre}: {e}")
         
         nucs_info.append({
             "id": nombre,
             "url": url,
-            "disponible": disponible
+            "disponible": disponible,
+            "error": error_msg
         })
     
     return jsonify({
@@ -339,6 +354,58 @@ def listar_nucs():
         "modo": "proxy",
         "nucs": nucs_info,
         "total": len(nucs_info)
+    })
+
+@app.route('/api/test/nuc', methods=['GET'])
+def test_conectividad_nuc():
+    """Endpoint de prueba para verificar conectividad al NUC"""
+    if not MODO_PROXY:
+        return jsonify({
+            "success": False,
+            "error": "No está en modo proxy"
+        }), 400
+    
+    resultados = []
+    for nombre, url in NUCs.items():
+        resultado = {
+            "nuc": nombre,
+            "url": url,
+            "tests": {}
+        }
+        
+        # Test 1: Status endpoint
+        try:
+            print(f"🔍 [TEST] Probando: {url}/api/status")
+            response = requests.get(f"{url}/api/status", timeout=10)
+            resultado["tests"]["status"] = {
+                "success": response.status_code == 200,
+                "status_code": response.status_code,
+                "response": response.json() if response.status_code == 200 else response.text[:200]
+            }
+        except requests.exceptions.Timeout:
+            resultado["tests"]["status"] = {
+                "success": False,
+                "error": "Timeout después de 10 segundos"
+            }
+            print(f"⏱️ [TEST] Timeout al conectar con {url}")
+        except requests.exceptions.ConnectionError as e:
+            resultado["tests"]["status"] = {
+                "success": False,
+                "error": f"ConnectionError: {str(e)}"
+            }
+            print(f"❌ [TEST] Error de conexión con {url}: {e}")
+        except Exception as e:
+            resultado["tests"]["status"] = {
+                "success": False,
+                "error": f"Error: {str(e)}"
+            }
+            print(f"❌ [TEST] Error inesperado con {url}: {e}")
+        
+        resultados.append(resultado)
+    
+    return jsonify({
+        "success": True,
+        "resultados": resultados
     })
 
 @app.route('/api/ip', methods=['GET'])
@@ -667,15 +734,29 @@ def snapshot_camara(ip):
                     
             except requests.exceptions.Timeout:
                 print(f"⏱️ Timeout al conectar con NUC: {nuc_url}")
+                print(f"   Detalles: Railway no pudo conectarse a {nuc_url} en 15 segundos")
+                print(f"   Verifica:")
+                print(f"   1. Que el puente genérico esté corriendo en el NUC")
+                print(f"   2. Que Railway y NUC estén online en Tailscale")
+                print(f"   3. Que el firewall del NUC permita conexiones en puerto 5000")
                 return jsonify({
                     "success": False,
-                    "error": "Timeout al conectar con el NUC. Verifica que el puente genérico esté corriendo."
+                    "error": "Timeout al conectar con el NUC. Verifica que el puente genérico esté corriendo.",
+                    "nuc_url": nuc_url,
+                    "detalles": "Railway no pudo conectarse al NUC a través de Tailscale"
                 }), 504
             except requests.exceptions.ConnectionError as e:
                 print(f"❌ Error de conexión con NUC: {e}")
+                print(f"   Detalles: Railway no puede alcanzar {nuc_url}")
+                print(f"   Verifica:")
+                print(f"   1. Que Railway y NUC estén online en Tailscale")
+                print(f"   2. Que el puente genérico esté corriendo en el NUC")
+                print(f"   3. Que el firewall del NUC permita conexiones en puerto 5000")
                 return jsonify({
                     "success": False,
-                    "error": f"No se pudo conectar al NUC en {nuc_url}. Verifica Tailscale y que el puente esté corriendo."
+                    "error": f"No se pudo conectar al NUC en {nuc_url}. Verifica Tailscale y que el puente esté corriendo.",
+                    "nuc_url": nuc_url,
+                    "detalles": str(e)
                 }), 503
             except Exception as e:
                 print(f"❌ Error inesperado: {e}")
