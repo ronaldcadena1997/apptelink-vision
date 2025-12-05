@@ -24,24 +24,29 @@ import requests
 # Configurar proxy para Tailscale userspace-networking
 # Si Tailscale está usando userspace-networking, necesitamos usar proxy SOCKS5
 TAILSCALE_PROXY = None
+
+# Verificar si Tailscale está conectado y usar proxy SOCKS5
+# En userspace-networking, el proxy está en localhost:1080
 try:
-    import socket
-    # Verificar si el proxy SOCKS5 está disponible (puerto 1080)
-    test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    test_socket.settimeout(1)
-    result = test_socket.connect_ex(('127.0.0.1', 1080))
-    test_socket.close()
-    if result == 0:
-        # Proxy disponible, configurar para usar SOCKS5
+    import subprocess
+    import os
+    
+    # Verificar si Tailscale está conectado
+    # Si estamos en Railway con Tailscale, asumimos que el proxy está disponible
+    if os.getenv('TAILSCALE_AUTHKEY'):
+        # Tailscale está configurado, intentar usar proxy SOCKS5
+        # El proxy puede no estar disponible inmediatamente, pero lo intentaremos
         TAILSCALE_PROXY = {
             'http': 'socks5h://127.0.0.1:1080',
             'https': 'socks5h://127.0.0.1:1080'
         }
-        print("✅ Proxy SOCKS5 de Tailscale detectado y configurado")
+        print("✅ Proxy SOCKS5 configurado para Tailscale userspace-networking")
+        print("   Si las conexiones fallan, el proxy puede no estar disponible aún")
     else:
-        print("⚠️  Proxy SOCKS5 no disponible, usando conexiones directas")
+        print("ℹ️  Tailscale no configurado, usando conexiones directas")
 except Exception as e:
-    print(f"⚠️  No se pudo verificar proxy SOCKS5: {e}")
+    print(f"⚠️  No se pudo configurar proxy SOCKS5: {e}")
+    print("   Usando conexiones directas")
 
 # Importar configuración centralizada
 try:

@@ -21,18 +21,20 @@ echo "[1/3] Iniciando Tailscale daemon..."
 mkdir -p /var/lib/tailscale
 mkdir -p /var/run/tailscale
 
-# Iniciar tailscaled en segundo plano con userspace-networking
+# Iniciar tailscaled en segundo plano con userspace-networking y proxy SOCKS5
 # Esto no requiere privilegios especiales ni acceso a /dev/net/tun
-tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock --tun=userspace-networking &
+# El proxy SOCKS5 se habilita en tailscaled, no en tailscale up
+tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock --tun=userspace-networking --socks5-server=localhost:1080 &
 TAILSCALED_PID=$!
 
-# Esperar a que tailscaled se inicie
-echo "Esperando a que tailscaled se inicie..."
-sleep 5
+# Esperar a que tailscaled se inicie y el proxy SOCKS5 esté disponible
+echo "Esperando a que tailscaled se inicie y el proxy SOCKS5 esté disponible..."
+sleep 8
 
 echo "[2/3] Conectando a Tailscale con authkey..."
-# En userspace-networking, el proxy SOCKS5 se habilita automáticamente en localhost:1080
-tailscale up --authkey=$TAILSCALE_AUTHKEY --accept-routes --accept-dns=false
+# En userspace-networking, necesitamos habilitar el proxy SOCKS5 explícitamente
+# El proxy SOCKS5 se habilita con --socks5-server
+tailscale up --authkey=$TAILSCALE_AUTHKEY --accept-routes --accept-dns=false --socks5-server=localhost:1080
 
 # Esperar a que Tailscale se conecte
 echo "Esperando conexión de Tailscale..."
