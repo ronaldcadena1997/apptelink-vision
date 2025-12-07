@@ -20,23 +20,27 @@ NUC_URLS_STR = os.getenv('NUC_URLS', os.getenv('NUC_URL', None))
 # Si no hay variable de entorno, usar configuración por defecto
 if not NUC_URLS_STR:
     # CONFIGURACIÓN LOCAL (edita estas IPs según tus NUCs)
+    # Esta configuración se usa para la arquitectura antigua (Tailscale)
+    # Para la nueva arquitectura (Hikvision), solo necesitas el NUC_ID
     NUCs_CONFIG = {
         'nuc_sede1': {
-            'tailscale_ip': '100.92.50.72',  # Tu IP de Tailscale
+            'tailscale_ip': '100.92.50.72',  # Tu IP de Tailscale (solo para arquitectura antigua)
             'puerto': 5000,
             'nombre': 'NUC Principal',
-            'red_local': '192.168.60'  # Tu red local
+            'red_local': '192.168.60',  # Tu red local
+            'server_url': 'https://apptelink-vision-production.up.railway.app'  # URL del servidor central
         },
         # Si tienes más NUCs, agrégalos aquí:
         # 'nuc_sede2': {
         #     'tailscale_ip': '100.92.50.XX',  # IP de Tailscale del NUC 2
         #     'puerto': 5000,
         #     'nombre': 'NUC Sede 2',
-        #     'red_local': '192.168.61'
+        #     'red_local': '192.168.61',
+        #     'server_url': 'https://apptelink-vision-production.up.railway.app'
         # },
     }
     
-    # Construir URLs desde configuración
+    # Construir URLs desde configuración (solo para arquitectura antigua)
     NUC_URLS_STR = ','.join([
         f"{nombre}:http://{config['tailscale_ip']}:{config['puerto']}"
         for nombre, config in NUCs_CONFIG.items()
@@ -73,12 +77,16 @@ CAMARAS_IPS_STR = os.getenv('CAMARAS_IPS', '')
 # Si no hay variable de entorno, usar configuración por defecto
 if not CAMARAS_IPS_STR:
     # CONFIGURACIÓN LOCAL (edita estas IPs según tus cámaras)
+    # IMPORTANTE: Cada cámara debe tener el 'nuc' al que pertenece
     CAMARAS_CONFIG = [
-        # Cámaras del NUC Principal
+        # Cámaras del NUC Principal (nuc_sede1)
         {'ip': '192.168.60.65', 'nombre': 'Cámara Principal', 'nuc': 'nuc_sede1'},
         # Si tienes más cámaras, agrégalas aquí:
         # {'ip': '192.168.60.66', 'nombre': 'Cámara 2', 'nuc': 'nuc_sede1'},
         # {'ip': '192.168.60.67', 'nombre': 'Cámara 3', 'nuc': 'nuc_sede1'},
+        
+        # Cámaras de otro NUC (ejemplo):
+        # {'ip': '192.168.61.65', 'nombre': 'Cámara Sede 2', 'nuc': 'nuc_sede2'},
     ]
     
     # Extraer solo las IPs

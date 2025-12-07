@@ -1,0 +1,31 @@
+# Dockerfile para Arquitectura Estilo Hikvision
+# Ya no necesita Tailscale - Los NUCs se conectan al servidor
+
+FROM python:3.11-slim
+
+# Directorio de trabajo
+WORKDIR /app
+
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Actualizar pip
+RUN pip install --upgrade pip
+
+# Copiar archivos de dependencias primero
+COPY requirements.txt .
+
+# Instalar dependencias Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar el resto de archivos
+COPY . .
+
+# Exponer puerto (Railway usa PORT automáticamente)
+EXPOSE 8080
+
+# Comando para iniciar el servidor estilo Hikvision
+CMD ["python", "server_hikvision_style.py"]
