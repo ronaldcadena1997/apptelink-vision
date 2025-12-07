@@ -132,18 +132,50 @@ export const fetchAPI = async (url, options = {}) => {
     
     if (!response.ok) {
       console.error('❌ Error HTTP:', response.status, response.statusText);
-      const errorText = await response.text();
+      
+      // Intentar obtener el error como JSON, si falla usar texto
+      let errorText = '';
+      let errorData = null;
+      
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          errorData = await response.json();
+          errorText = errorData.error || errorData.message || JSON.stringify(errorData);
+        } else {
+          errorText = await response.text();
+        }
+      } catch (parseError) {
+        errorText = `Error ${response.status}: ${response.statusText}`;
+      }
+      
       console.error('❌ Respuesta:', errorText);
-      return { success: false, error: `HTTP ${response.status}: ${response.statusText}` };
+      return { 
+        success: false, 
+        error: errorData?.error || errorText || `HTTP ${response.status}: ${response.statusText}`,
+        status: response.status
+      };
     }
     
-    const data = await response.json();
-    console.log('✅ Respuesta exitosa:', data);
-    return data;
+    // Intentar parsear como JSON
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      const data = await response.json();
+      console.log('✅ Respuesta exitosa:', data);
+      return data;
+    } else {
+      // Si no es JSON, devolver el texto
+      const text = await response.text();
+      return { success: true, data: text };
+    }
   } catch (error) {
     console.error('❌ Error en API:', error);
     console.error('❌ URL que falló:', url);
-    return { success: false, error: error.message };
+    return { 
+      success: false, 
+      error: error.message || 'Error de conexión',
+      details: error.toString()
+    };
   }
 };
 

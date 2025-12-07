@@ -92,37 +92,66 @@ sio = socketio.Client(reconnection=True, reconnection_attempts=10, reconnection_
 
 def capturar_snapshot(ip_camara):
     """Captura snapshot de una cámara"""
+    cap = None
     try:
-        rtsp_url = f"rtsp://{USUARIO_CAMARAS}:{CONTRASENA_CAMARAS}@{ip_camara}:554/Streaming/Channels/101"
+        # Intentar diferentes URLs RTSP comunes
+        rtsp_urls = [
+            f"rtsp://{USUARIO_CAMARAS}:{CONTRASENA_CAMARAS}@{ip_camara}:554/Streaming/Channels/101",
+            f"rtsp://{USUARIO_CAMARAS}:{CONTRASENA_CAMARAS}@{ip_camara}:554/Streaming/Channels/1",
+            f"rtsp://{USUARIO_CAMARAS}:{CONTRASENA_CAMARAS}@{ip_camara}:554/h264/ch1/main/av_stream",
+        ]
         
-        cap = cv2.VideoCapture(rtsp_url)
-        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+        for rtsp_url in rtsp_urls:
+            try:
+                # Configurar timeout más corto
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;5000000"  # 5 segundos
+                
+                cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+                cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+                cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
+                
+                if not cap.isOpened():
+                    if cap:
+                        cap.release()
+                    continue  # Intentar siguiente URL
+                
+                # Intentar leer frame con timeout
+                ret, frame = cap.read()
+                
+                if ret and frame is not None:
+                    # Redimensionar si es muy grande
+                    height, width = frame.shape[:2]
+                    if width > 1920:
+                        scale = 1920 / width
+                        new_width = int(width * scale)
+                        new_height = int(height * scale)
+                        frame = cv2.resize(frame, (new_width, new_height))
+                    
+                    # Convertir a base64
+                    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                    img_base64 = base64.b64encode(buffer).decode('utf-8')
+                    
+                    if cap:
+                        cap.release()
+                    
+                    return img_base64, None
+                else:
+                    if cap:
+                        cap.release()
+                    continue  # Intentar siguiente URL
+                    
+            except Exception as e:
+                if cap:
+                    cap.release()
+                continue  # Intentar siguiente URL
         
-        if not cap.isOpened():
-            return None, "No se pudo abrir la cámara"
-        
-        ret, frame = cap.read()
-        cap.release()
-        
-        if not ret or frame is None:
-            return None, "No se pudo capturar frame"
-        
-        # Redimensionar si es muy grande
-        height, width = frame.shape[:2]
-        if width > 1920:
-            scale = 1920 / width
-            new_width = int(width * scale)
-            new_height = int(height * scale)
-            frame = cv2.resize(frame, (new_width, new_height))
-        
-        # Convertir a base64
-        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-        img_base64 = base64.b64encode(buffer).decode('utf-8')
-        
-        return img_base64, None
+        # Si llegamos aquí, ninguna URL funcionó
+        return None, "No se pudo conectar a la cámara con ninguna URL RTSP"
         
     except Exception as e:
-        return None, str(e)
+        if cap:
+            cap.release()
+        return None, f"Error al capturar: {str(e)}"
 
 # ============================================
 # EVENTOS WEBSOCKET

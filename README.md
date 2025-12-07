@@ -389,6 +389,35 @@ npx expo start
 
 ---
 
+## 🌐 **Backend en Servidor + NUC Local**
+
+### **Arquitectura Recomendada:**
+- ✅ **Backend Python** en servidor (Railway/VPS)
+- ✅ **Frontend Web** en servidor (Railway/Vercel)
+- ✅ **NUC Local** expuesto vía VPN (Tailscale/ZeroTier)
+- ✅ Backend en servidor hace proxy al NUC local
+
+📄 **📖 [Guía Completa de Configuración](backend/GUIA_CONFIGURACION_SERVIDOR.md)** ⭐
+
+**Setup rápido (5 minutos):**
+1. Instala Tailscale en NUC: `curl -fsSL https://tailscale.com/install.sh | sh`
+2. Obtén IP del NUC: `tailscale ip -4`
+3. Configura en Railway: Variable `NUC_URL=http://IP_NUC:5000`
+4. ¡Listo! El backend en servidor se conecta al NUC automáticamente
+
+---
+
+## 📚 **Otras Opciones de Conexión:**
+
+📄 **Lee [Acceso Directo al NUC](backend/ACCESO_DIRECTO_NUC.md)** para más opciones:
+- Tailscale (5 min, gratis) ⭐
+- ZeroTier (5 min, gratis)
+- IP Pública + Port Forwarding
+- DDNS (No-IP)
+- WireGuard VPN
+
+---
+
 ## 📞 Soporte
 
 **© 2025 Apptelink Vision**  

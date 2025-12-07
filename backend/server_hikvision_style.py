@@ -120,6 +120,12 @@ def handle_snapshot(data):
         timestamp = data.get('timestamp', datetime.now().isoformat())
         
         if not image:
+            print(f"⚠️  Snapshot sin imagen recibido: {nuc_id} - {ip}")
+            return
+        
+        # Validar que la imagen no esté vacía
+        if len(image) < 100:  # Imagen muy pequeña, probablemente error
+            print(f"⚠️  Snapshot con imagen inválida recibido: {nuc_id} - {ip}")
             return
         
         # Almacenar en Redis
@@ -131,32 +137,41 @@ def handle_snapshot(data):
             'timestamp': timestamp
         }
         
-        if isinstance(db, dict):
-            db[f'snapshot:{ip}'] = json.dumps(snapshot_data)
-        else:
-            db.setex(
-                f'snapshot:{ip}',
-                SNAPSHOT_EXPIRY,
-                json.dumps(snapshot_data)
-            )
+        try:
+            if isinstance(db, dict):
+                db[f'snapshot:{ip}'] = json.dumps(snapshot_data)
+            else:
+                db.setex(
+                    f'snapshot:{ip}',
+                    SNAPSHOT_EXPIRY,
+                    json.dumps(snapshot_data)
+                )
+        except Exception as db_error:
+            print(f"⚠️  Error al guardar en DB: {db_error}")
+            # Continuar aunque falle la DB
         
         # Actualizar heartbeat
         if nuc_id in nucs_conectados:
             nucs_conectados[nuc_id]['last_heartbeat'] = time.time()
         
         # Reenviar al frontend (broadcast a todos los clientes web)
-        socketio.emit('snapshot_update', {
-            'nuc_id': nuc_id,
-            'ip': ip,
-            'image': image,
-            'estado': estado,
-            'timestamp': timestamp
-        }, namespace='/', room=None)  # Broadcast a todos
+        try:
+            socketio.emit('snapshot_update', {
+                'nuc_id': nuc_id,
+                'ip': ip,
+                'image': image,
+                'estado': estado,
+                'timestamp': timestamp
+            }, namespace='/', room=None)  # Broadcast a todos
+        except Exception as emit_error:
+            print(f"⚠️  Error al emitir snapshot: {emit_error}")
         
         print(f"📸 Snapshot recibido: {nuc_id} - {ip}")
         
     except Exception as e:
         print(f"❌ Error al procesar snapshot: {e}")
+        import traceback
+        traceback.print_exc()
 
 @socketio.on('snapshot_error')
 def handle_snapshot_error(data):
@@ -281,18 +296,38 @@ def obtener_snapshot(ip):
                 'error': 'No hay snapshot disponible'
             }), 404
         
-        data = json.loads(data_str)
+        try:
+            data = json.loads(data_str)
+        except json.JSONDecodeError as e:
+            print(f"❌ Error al parsear JSON del snapshot: {e}")
+            return jsonify({
+                'success': False,
+                'error': 'Error al procesar snapshot'
+            }), 500
+        
+        image = data.get('image')
+        if not image:
+            return jsonify({
+                'success': False,
+                'error': 'Snapshot sin imagen'
+            }), 404
         
         return jsonify({
             'success': True,
             'ip': ip,
-            'image': data.get('image'),
-            'estado': data.get('estado'),
+            'image': image,
+            'estado': data.get('estado', 'activa'),
             'timestamp': data.get('timestamp')
         })
         
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        print(f"❌ Error en obtener_snapshot: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/camaras/detectar', methods=['GET'])
 def detectar_camaras():

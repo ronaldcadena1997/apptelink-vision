@@ -103,14 +103,31 @@ export default function CamaraScreen() {
     if (!camaraSeleccionada?.ip) return;
     
     setLoadingSnapshot(true);
-    const response = await fetchAPI(API_ENDPOINTS.snapshotCamara(camaraSeleccionada.ip));
-    
-    if (response.success) {
-      setSnapshot(response.image);
-    } else {
-      Alert.alert('Error', 'No se pudo capturar la imagen');
+    try {
+      const response = await fetchAPI(API_ENDPOINTS.snapshotCamara(camaraSeleccionada.ip));
+      
+      if (response.success && response.image) {
+        setSnapshot(response.image);
+      } else {
+        const errorMsg = response.error || 'No se pudo capturar la imagen';
+        console.warn('⚠️  No se pudo obtener snapshot:', errorMsg);
+        
+        // Si es error 404, significa que no hay snapshot disponible aún
+        if (response.status === 404) {
+          Alert.alert(
+            'Sin imagen disponible', 
+            'La cámara aún no ha enviado una imagen. Espera unos segundos y vuelve a intentar.'
+          );
+        } else {
+          Alert.alert('Error', errorMsg);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error al capturar snapshot:', error);
+      Alert.alert('Error', 'Error al intentar capturar la imagen: ' + error.message);
+    } finally {
+      setLoadingSnapshot(false);
     }
-    setLoadingSnapshot(false);
   };
 
   const onRefresh = async () => {
