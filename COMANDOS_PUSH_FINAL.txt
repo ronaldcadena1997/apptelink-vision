@@ -1,0 +1,18 @@
+========================================
+COMANDOS PARA SUBIR TODOS LOS CAMBIOS
+========================================
+
+COPIA Y PEGA ESTOS COMANDOS EN POWERSHELL:
+
+cd C:\Users\Administrator\Desktop\proyectowebApptelinkVision
+git add -A
+git commit -m "Corregir Dockerfile, mejorar deteccion de estado, agregar logging, soporte HTTP snapshots Hikvision"
+git push
+
+========================================
+O USA EL SCRIPT:
+========================================
+
+.\subir_cambios_dockerfile.bat
+
+========================================
