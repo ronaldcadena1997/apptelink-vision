@@ -1,0 +1,24 @@
+========================================
+COMANDOS PARA SUBIR DOCKERFILE.FRONTEND
+========================================
+
+COPIA Y PEGA ESTOS COMANDOS EN POWERSHELL:
+
+cd C:\Users\Administrator\Desktop\proyectowebApptelinkVision
+git add Dockerfile.frontend
+git commit -m "Agregar Dockerfile.frontend para desplegar frontend en Railway"
+git push
+
+========================================
+O USA EL SCRIPT:
+========================================
+
+.\subir_dockerfile_frontend.bat
+
+========================================
+TODO EN UNA LÍNEA (RÁPIDO):
+========================================
+
+cd C:\Users\Administrator\Desktop\proyectowebApptelinkVision && git add Dockerfile.frontend && git commit -m "Agregar Dockerfile.frontend para desplegar frontend en Railway" && git push
+
+========================================

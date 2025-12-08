@@ -1,0 +1,21 @@
+========================================
+COMANDOS PARA VERIFICAR BUILD LOCAL
+========================================
+
+Ejecuta estos comandos para ver qué carpeta genera Expo:
+
+cd C:\Users\Administrator\Desktop\proyectowebApptelinkVision
+npm install
+npm run build:web
+
+# Verificar qué carpeta se creó
+dir dist
+dir web-build
+
+# Si existe 'dist', usa:
+# Start Command en Railway: npx serve dist -s -p $PORT
+
+# Si existe 'web-build', usa:
+# Start Command en Railway: npx serve web-build -s -p $PORT
+
+========================================
