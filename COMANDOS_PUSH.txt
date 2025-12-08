@@ -1,0 +1,37 @@
+========================================
+COMANDOS PARA HACER PUSH A GITHUB
+========================================
+
+COPIA Y PEGA ESTOS COMANDOS EN POWERSHELL:
+
+1. Ir al directorio:
+cd C:\Users\Administrator\Desktop\proyectowebApptelinkVision
+
+2. Verificar cambios:
+git status
+
+3. Agregar todos los archivos:
+git add -A
+
+4. Ver qué se va a subir:
+git status --short
+
+5. Crear commit:
+git commit -m "Implementacion completa arquitectura Hikvision: NUC agent, backend SocketIO, mejoras en frontend, instrucciones manuales"
+
+6. Subir a GitHub:
+git push
+
+========================================
+COMANDOS EN UNA SOLA LÍNEA (COPIA TODO):
+========================================
+
+cd C:\Users\Administrator\Desktop\proyectowebApptelinkVision && git add -A && git commit -m "Implementacion completa arquitectura Hikvision" && git push
+
+========================================
+ALTERNATIVA: USAR EL SCRIPT
+========================================
+
+.\subir_todos_cambios.bat
+
+========================================

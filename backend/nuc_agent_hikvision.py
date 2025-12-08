@@ -12,6 +12,9 @@ import cv2
 import base64
 import time
 import os
+import subprocess
+import socket
+import requests
 from datetime import datetime
 
 # Importar configuración centralizada
@@ -92,53 +95,115 @@ sio = socketio.Client(reconnection=True, reconnection_attempts=10, reconnection_
 
 def capturar_snapshot(ip_camara):
     """Captura snapshot de una cámara"""
-    cap = None
+    import subprocess
+    import socket
+    
+    # Primero verificar que la cámara responde al ping
     try:
-        # Intentar diferentes URLs RTSP comunes
-        rtsp_urls = [
+        result = subprocess.run(
+            ['ping', '-n', '1', '-w', '1000', ip_camara],
+            capture_output=True,
+            timeout=2
+        )
+        if result.returncode != 0:
+            return None, f"La cámara {ip_camara} no responde al ping. Verifica que esté encendida y en la red."
+    except:
+        pass  # Continuar aunque el ping falle
+    
+    # Verificar que el puerto 554 está abierto
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        result = sock.connect_ex((ip_camara, 554))
+        sock.close()
+        if result != 0:
+            return None, f"El puerto 554 (RTSP) está cerrado en {ip_camara}. Verifica configuración de la cámara."
+    except:
+        pass  # Continuar aunque la verificación de puerto falle
+    
+    cap = None
+    urls_intentadas = []
+    
+    try:
+        # URLs específicas para Hikvision (DS-2CD1047G2)
+        # Orden: primero HTTP (más rápido y confiable), luego RTSP
+        urls = [
+            # HTTP Snapshots (Hikvision ISAPI) - Más confiable
+            f"http://{ip_camara}/ISAPI/Streaming/channels/101/picture",
+            f"http://{ip_camara}/ISAPI/Streaming/channels/1/picture",
+            f"http://{ip_camara}/cgi-bin/snapshot.cgi?channel=1",
+            f"http://{ip_camara}/Streaming/channels/101/picture",
+            # RTSP Streams (Hikvision)
             f"rtsp://{USUARIO_CAMARAS}:{CONTRASENA_CAMARAS}@{ip_camara}:554/Streaming/Channels/101",
             f"rtsp://{USUARIO_CAMARAS}:{CONTRASENA_CAMARAS}@{ip_camara}:554/Streaming/Channels/1",
             f"rtsp://{USUARIO_CAMARAS}:{CONTRASENA_CAMARAS}@{ip_camara}:554/h264/ch1/main/av_stream",
+            f"rtsp://{USUARIO_CAMARAS}:{CONTRASENA_CAMARAS}@{ip_camara}:554/Streaming/Channels/102",
         ]
         
-        for rtsp_url in rtsp_urls:
+        for url in urls:
             try:
-                # Configurar timeout más corto
-                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;5000000"  # 5 segundos
+                # Ocultar credenciales en el log
+                url_log = url.split('@')[1] if '@' in url else url
+                urls_intentadas.append(url_log)
                 
-                cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
-                cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
-                cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
+                # Si es HTTP, intentar descargar snapshot directamente
+                if url.startswith('http://'):
+                    try:
+                        # Para Hikvision, usar autenticación básica
+                        response = requests.get(
+                            url, 
+                            timeout=5, 
+                            auth=(USUARIO_CAMARAS, CONTRASENA_CAMARAS),
+                            stream=True
+                        )
+                        if response.status_code == 200:
+                            # Verificar que es una imagen
+                            content_type = response.headers.get('content-type', '')
+                            if 'image' in content_type or len(response.content) > 100:
+                                # Convertir imagen HTTP a base64
+                                img_base64 = base64.b64encode(response.content).decode('utf-8')
+                                return img_base64, None
+                    except Exception as e:
+                        continue  # Intentar siguiente URL
                 
-                if not cap.isOpened():
-                    if cap:
-                        cap.release()
-                    continue  # Intentar siguiente URL
-                
-                # Intentar leer frame con timeout
-                ret, frame = cap.read()
-                
-                if ret and frame is not None:
-                    # Redimensionar si es muy grande
-                    height, width = frame.shape[:2]
-                    if width > 1920:
-                        scale = 1920 / width
-                        new_width = int(width * scale)
-                        new_height = int(height * scale)
-                        frame = cv2.resize(frame, (new_width, new_height))
+                # Si es RTSP, usar OpenCV
+                if url.startswith('rtsp://'):
+                    # Configurar timeout más corto
+                    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "timeout;5000000"  # 5 segundos
                     
-                    # Convertir a base64
-                    _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                    img_base64 = base64.b64encode(buffer).decode('utf-8')
+                    cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+                    cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, 5000)
+                    cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, 5000)
                     
-                    if cap:
-                        cap.release()
+                    if not cap.isOpened():
+                        if cap:
+                            cap.release()
+                        continue  # Intentar siguiente URL
                     
-                    return img_base64, None
-                else:
-                    if cap:
-                        cap.release()
-                    continue  # Intentar siguiente URL
+                    # Intentar leer frame con timeout
+                    ret, frame = cap.read()
+                    
+                    if ret and frame is not None:
+                        # Redimensionar si es muy grande
+                        height, width = frame.shape[:2]
+                        if width > 1920:
+                            scale = 1920 / width
+                            new_width = int(width * scale)
+                            new_height = int(height * scale)
+                            frame = cv2.resize(frame, (new_width, new_height))
+                        
+                        # Convertir a base64
+                        _, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                        img_base64 = base64.b64encode(buffer).decode('utf-8')
+                        
+                        if cap:
+                            cap.release()
+                        
+                        return img_base64, None
+                    else:
+                        if cap:
+                            cap.release()
+                        continue  # Intentar siguiente URL
                     
             except Exception as e:
                 if cap:
@@ -146,12 +211,14 @@ def capturar_snapshot(ip_camara):
                 continue  # Intentar siguiente URL
         
         # Si llegamos aquí, ninguna URL funcionó
-        return None, "No se pudo conectar a la cámara con ninguna URL RTSP"
+        error_msg = f"No se pudo conectar a {ip_camara}. URLs intentadas: {', '.join(urls_intentadas)}"
+        error_msg += f"\n   Verifica: IP ({ip_camara}), credenciales (usuario: {USUARIO_CAMARAS}), y que la cámara esté encendida"
+        return None, error_msg
         
     except Exception as e:
         if cap:
             cap.release()
-        return None, f"Error al capturar: {str(e)}"
+        return None, f"Error al capturar de {ip_camara}: {str(e)}"
 
 # ============================================
 # EVENTOS WEBSOCKET
@@ -241,7 +308,7 @@ def enviar_snapshots_periodicos():
                     'timestamp': datetime.now().isoformat(),
                     'estado': 'activa'
                 })
-                print(f"✅ Snapshot enviado: {ip_camara}")
+                print(f"✅ Snapshot capturado y enviado: {ip_camara} ({len(snapshot)} bytes)")
             else:
                 sio.emit('snapshot_error', {
                     'nuc_id': NUC_ID,
@@ -249,7 +316,12 @@ def enviar_snapshots_periodicos():
                     'error': error,
                     'timestamp': datetime.now().isoformat()
                 })
-                print(f"❌ Error: {ip_camara} - {error}")
+                # Mostrar error de forma más clara
+                error_lines = error.split('\n') if error else [str(error)]
+                print(f"❌ Error al capturar {ip_camara}:")
+                for line in error_lines:
+                    if line.strip():
+                        print(f"   {line.strip()}")
         
         # Esperar antes del siguiente ciclo
         time.sleep(INTERVALO_SNAPSHOT)

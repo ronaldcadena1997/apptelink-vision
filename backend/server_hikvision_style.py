@@ -80,22 +80,33 @@ SNAPSHOT_EXPIRY = 300  # 5 minutos
 @socketio.on('connect')
 def handle_connect(auth):
     """NUC se conecta al servidor (como Hik-Connect)"""
-    nuc_id = auth.get('nuc_id', 'unknown')
-    
-    nucs_conectados[nuc_id] = {
-        'socket_id': request.sid,
-        'last_heartbeat': time.time(),
-        'camaras': [],
-        'connected_at': datetime.now().isoformat()
-    }
-    
-    print(f"✅ NUC conectado: {nuc_id} (Socket: {request.sid})")
-    
-    emit('connected', {
-        'status': 'ok',
-        'nuc_id': nuc_id,
-        'message': 'Conectado al servidor central'
-    })
+    try:
+        # El auth puede venir como dict o como query string
+        if isinstance(auth, dict):
+            nuc_id = auth.get('nuc_id', 'unknown')
+        else:
+            # Si viene como query string, obtener de request.args
+            nuc_id = request.args.get('nuc_id', 'unknown')
+        
+        nucs_conectados[nuc_id] = {
+            'socket_id': request.sid,
+            'last_heartbeat': time.time(),
+            'camaras': [],
+            'connected_at': datetime.now().isoformat()
+        }
+        
+        print(f"✅ NUC conectado: {nuc_id} (Socket: {request.sid})")
+        print(f"   Total NUCs conectados: {len(nucs_conectados)}")
+        
+        emit('connected', {
+            'status': 'ok',
+            'nuc_id': nuc_id,
+            'message': 'Conectado al servidor central'
+        })
+    except Exception as e:
+        print(f"❌ Error en handle_connect: {e}")
+        import traceback
+        traceback.print_exc()
 
 @socketio.on('disconnect')
 def handle_disconnect():
@@ -179,7 +190,27 @@ def handle_snapshot(data):
         except Exception as emit_error:
             print(f"⚠️  Error al emitir snapshot: {emit_error}")
         
-        print(f"📸 Snapshot recibido: {nuc_id} - {ip}")
+        print(f"📸 Snapshot recibido: {nuc_id} - {ip} ({len(image)} bytes)")
+        # Verificar que se guardó correctamente
+        try:
+            if isinstance(db, dict):
+                db[f'snapshot:{ip}'] = json.dumps(snapshot_data)  # Guardar de nuevo para asegurar
+                saved = db.get(f'snapshot:{ip}')
+                if saved:
+                    print(f"✅ Snapshot guardado en memoria para {ip} (tamaño: {len(saved)} bytes)")
+                else:
+                    print(f"⚠️  Snapshot NO se guardó en memoria para {ip}")
+            else:
+                db.setex(f'snapshot:{ip}', SNAPSHOT_EXPIRY, json.dumps(snapshot_data))  # Guardar de nuevo
+                saved = db.get(f'snapshot:{ip}')
+                if saved:
+                    print(f"✅ Snapshot guardado en Redis para {ip} (tamaño: {len(saved)} bytes)")
+                else:
+                    print(f"⚠️  Snapshot NO se guardó en Redis para {ip}")
+        except Exception as verify_error:
+            print(f"⚠️  Error al verificar snapshot guardado: {verify_error}")
+            import traceback
+            traceback.print_exc()
         
     except Exception as e:
         print(f"❌ Error al procesar snapshot: {e}")
@@ -426,16 +457,68 @@ def detectar_camaras():
                     try:
                         if snapshot_data_str:
                             snapshot_data = json.loads(snapshot_data_str)
+                            # Verificar que el snapshot es reciente (últimos 60 segundos)
+                            if snapshot_data:
+                                timestamp_str = snapshot_data.get('timestamp', '')
+                                if timestamp_str:
+                                    try:
+                                        snapshot_time = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                                        now = datetime.now(snapshot_time.tzinfo) if snapshot_time.tzinfo else datetime.now()
+                                        time_diff = (now - snapshot_time).total_seconds()
+                                        if time_diff > 60:
+                                            # Snapshot muy antiguo, considerar como sin acceso
+                                            snapshot_data = None
+                                            print(f"⚠️  Snapshot de {ip} es muy antiguo ({int(time_diff)}s), ignorando")
+                                    except:
+                                        pass  # Si no se puede parsear, usar el snapshot de todas formas
                     except (json.JSONDecodeError, TypeError) as e:
                         print(f"⚠️  Error al parsear snapshot_data para {ip}: {e}")
+                        print(f"   Contenido raw: {snapshot_data_str[:200] if snapshot_data_str else 'None'}...")
+                    
+                    # Debug: mostrar qué se encontró
+                    if snapshot_data_str:
+                        print(f"🔍 DEBUG {ip}: snapshot_data_str encontrado ({len(snapshot_data_str)} bytes)")
+                    else:
+                        print(f"🔍 DEBUG {ip}: NO hay snapshot_data_str en DB")
+                        # Intentar leer todas las keys para debug
+                        try:
+                            if isinstance(db, dict):
+                                keys = [k for k in db.keys() if 'snapshot' in k]
+                                print(f"   Keys en memoria con 'snapshot': {keys}")
+                            else:
+                                keys = list(db.scan_iter('snapshot:*'))
+                                print(f"   Keys en Redis con 'snapshot': {[k for k in keys]}")
+                        except:
+                            pass
                     
                     # Determinar estado
+                    # Si hay snapshot reciente, la cámara está activa
                     if snapshot_data:
-                        estado = snapshot_data.get('estado', 'activa')
+                        estado = 'activa'  # Forzar 'activa' si hay snapshot reciente
+                        print(f"✅ Cámara {ip} tiene snapshot reciente - Estado: activa")
                     elif estado_data:
+                        # Si hay estado de error, usar ese estado
                         estado = estado_data.get('estado', 'sin_acceso')
+                        print(f"⚠️  Cámara {ip} tiene estado de error - Estado: {estado}")
                     else:
-                        estado = 'sin_acceso'  # No hay datos aún
+                        # Si no hay datos, verificar si hay NUC conectado para esta cámara
+                        nuc_asociado = info.get('nuc')
+                        if nuc_asociado and nuc_asociado in nucs_conectados:
+                            # NUC conectado pero sin snapshot aún - puede estar procesando
+                            # Verificar si el NUC ha enviado snapshots recientemente
+                            nuc_info = nucs_conectados.get(nuc_asociado, {})
+                            last_heartbeat = nuc_info.get('last_heartbeat', 0)
+                            time_since_heartbeat = time.time() - last_heartbeat
+                            
+                            if time_since_heartbeat < 60:  # NUC activo en últimos 60 segundos
+                                estado = 'sin_acceso'  # NUC conectado pero sin snapshot aún
+                                print(f"⚠️  Cámara {ip} - NUC conectado pero sin snapshot aún (heartbeat hace {int(time_since_heartbeat)}s)")
+                            else:
+                                estado = 'sin_acceso'  # NUC no está activo
+                                print(f"❌ Cámara {ip} - NUC no está activo (último heartbeat hace {int(time_since_heartbeat)}s)")
+                        else:
+                            estado = 'sin_acceso'  # No hay datos ni NUC conectado
+                            print(f"❌ Cámara {ip} - Sin datos ni NUC conectado")
                     
                     camaras.append({
                         'ip': ip,
