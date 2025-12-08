@@ -1,0 +1,33 @@
+# Dockerfile para Frontend (Expo/React)
+# Usar este Dockerfile si Railway no detecta correctamente el proyecto
+
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Copiar archivos de dependencias primero (para cache)
+COPY package*.json ./
+
+# Instalar dependencias
+RUN npm install
+
+# Copiar código fuente
+COPY . .
+
+# Build del frontend
+RUN npm run build:web
+
+# Instalar serve para servir archivos estáticos
+RUN npm install -g serve
+
+# Verificar qué carpeta se generó
+RUN ls -la && echo "=== Verificando carpeta de build ===" && \
+    (test -d dist && echo "✅ Carpeta 'dist' encontrada" || echo "❌ Carpeta 'dist' NO encontrada") && \
+    (test -d web-build && echo "✅ Carpeta 'web-build' encontrada" || echo "❌ Carpeta 'web-build' NO encontrada")
+
+# Exponer puerto (Railway usa PORT automáticamente)
+EXPOSE 8080
+
+# Servir archivos estáticos
+# Intentar primero con 'dist', si no existe usar 'web-build'
+CMD ["sh", "-c", "if [ -d dist ]; then serve -s dist -l ${PORT:-8080}; else serve -s web-build -l ${PORT:-8080}; fi"]
