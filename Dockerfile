@@ -1,40 +1,37 @@
-# Stage 1: Build
-FROM node:18-alpine AS builder
+# Dockerfile para Arquitectura Estilo Hikvision
+# Este Dockerfile está en la raíz para que Railway lo encuentre fácilmente
 
+FROM python:3.11-slim
+
+# Directorio de trabajo
 WORKDIR /app
 
-# Copiar archivos de dependencias
-COPY package*.json ./
+# Instalar dependencias del sistema
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Instalar dependencias (incluye Expo CLI local)
-RUN npm install --legacy-peer-deps
+# Actualizar pip
+RUN pip install --upgrade pip
 
-# Instalar dependencias faltantes que Metro necesita
-RUN npm install is-arrayish --legacy-peer-deps || true
+# Copiar requirements desde backend
+COPY backend/requirements.txt .
 
-# Copiar código fuente
-COPY . .
+# Instalar dependencias Python
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Dar permisos de ejecución a binarios de node_modules
-RUN chmod -R +x node_modules/.bin/ 2>/dev/null || true
+# Copiar archivos necesarios del backend
+COPY backend/server_hikvision_style.py .
+COPY backend/config.py .
 
-# Construir aplicación web
-RUN npm run build
+# Verificar que los archivos existen
+RUN ls -la /app/server_hikvision_style.py && \
+    ls -la /app/config.py && \
+    echo "✅ Archivos copiados correctamente"
 
-# Stage 2: Servidor
-FROM node:18-alpine
+# Exponer puerto (Railway usa PORT automáticamente)
+EXPOSE 8080
 
-WORKDIR /app
-
-# Instalar serve
-RUN npm install -g serve
-
-# Copiar build
-COPY --from=builder /app/dist ./dist
-
-# Exponer puerto (Railway usa variable PORT)
-EXPOSE 3000
-
-# Servir archivos estáticos
-CMD serve dist -s -p ${PORT:-3000}
-
+# Comando para iniciar el servidor estilo Hikvision
+CMD ["python", "server_hikvision_style.py"]

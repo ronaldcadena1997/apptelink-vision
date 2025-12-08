@@ -24,6 +24,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar el resto de archivos
 COPY . .
 
+# Verificar que el archivo existe
+RUN ls -la /app/server_hikvision_style.py || echo "ERROR: server_hikvision_style.py no encontrado"
+
 # Exponer puerto (Railway usa PORT automáticamente)
 EXPOSE 8080
 
