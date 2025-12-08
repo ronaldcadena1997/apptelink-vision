@@ -24,10 +24,23 @@ try:
         obtener_info_camara, listar_camaras_por_nuc
     )
     USAR_CONFIG_FILE = True
-except ImportError:
+    print("✅ Configuración cargada desde config.py")
+except ImportError as e:
     USAR_CONFIG_FILE = False
     CAMARAS_CONFIGURADAS = []
     CAMARAS_DICT = {}
+    print(f"⚠️  No se pudo importar config.py: {e}")
+    # Crear función por defecto
+    def obtener_info_camara(ip):
+        return {'ip': ip, 'nombre': f'Cámara {ip}', 'nuc': None}
+except Exception as e:
+    USAR_CONFIG_FILE = False
+    CAMARAS_CONFIGURADAS = []
+    CAMARAS_DICT = {}
+    print(f"⚠️  Error al cargar config.py: {e}")
+    # Crear función por defecto
+    def obtener_info_camara(ip):
+        return {'ip': ip, 'nombre': f'Cámara {ip}', 'nuc': None}
 
 # ============================================
 # CONFIGURACIÓN
@@ -246,40 +259,75 @@ def listar_nucs():
 @app.route('/api/camaras', methods=['GET'])
 def listar_camaras():
     """Lista todas las cámaras de todos los NUCs"""
-    camaras = []
-    
-    # Obtener de Redis
-    if isinstance(db, dict):
-        for key, value in db.items():
-            if key.startswith('snapshot:'):
-                ip = key.replace('snapshot:', '')
-                data = json.loads(value)
-                camaras.append({
-                    'ip': ip,
-                    'nuc_id': data.get('nuc_id'),
-                    'estado': data.get('estado'),
-                    'timestamp': data.get('timestamp'),
-                    'tiene_snapshot': True
-                })
-    else:
-        for key in db.scan_iter('snapshot:*'):
-            ip = key.replace('snapshot:', '')
-            data_str = db.get(key)
-            if data_str:
-                data = json.loads(data_str)
-                camaras.append({
-                    'ip': ip,
-                    'nuc_id': data.get('nuc_id'),
-                    'estado': data.get('estado'),
-                    'timestamp': data.get('timestamp'),
-                    'tiene_snapshot': True
-                })
-    
-    return jsonify({
-        'success': True,
-        'camaras': camaras,
-        'total': len(camaras)
-    })
+    try:
+        camaras = []
+        
+        # Obtener de Redis
+        try:
+            if isinstance(db, dict):
+                for key, value in list(db.items()):  # Convertir a lista para evitar cambios durante iteración
+                    try:
+                        if key.startswith('snapshot:'):
+                            ip = key.replace('snapshot:', '')
+                            try:
+                                data = json.loads(value)
+                                camaras.append({
+                                    'ip': ip,
+                                    'nuc_id': data.get('nuc_id'),
+                                    'estado': data.get('estado'),
+                                    'timestamp': data.get('timestamp'),
+                                    'tiene_snapshot': True
+                                })
+                            except (json.JSONDecodeError, TypeError) as e:
+                                print(f"⚠️  Error al parsear snapshot de {ip}: {e}")
+                                continue
+                    except Exception as e:
+                        print(f"⚠️  Error al procesar key {key}: {e}")
+                        continue
+            else:
+                # Redis real
+                try:
+                    for key in db.scan_iter('snapshot:*'):
+                        try:
+                            ip = key.replace('snapshot:', '')
+                            data_str = db.get(key)
+                            if data_str:
+                                try:
+                                    data = json.loads(data_str)
+                                    camaras.append({
+                                        'ip': ip,
+                                        'nuc_id': data.get('nuc_id'),
+                                        'estado': data.get('estado'),
+                                        'timestamp': data.get('timestamp'),
+                                        'tiene_snapshot': True
+                                    })
+                                except (json.JSONDecodeError, TypeError) as e:
+                                    print(f"⚠️  Error al parsear snapshot de {ip}: {e}")
+                                    continue
+                        except Exception as e:
+                            print(f"⚠️  Error al procesar key {key}: {e}")
+                            continue
+                except Exception as e:
+                    print(f"⚠️  Error al iterar Redis: {e}")
+        except Exception as e:
+            print(f"⚠️  Error al leer de Redis: {e}")
+        
+        return jsonify({
+            'success': True,
+            'camaras': camaras,
+            'total': len(camaras)
+        })
+        
+    except Exception as e:
+        print(f"❌ Error crítico en listar_camaras: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'Error al listar cámaras: {str(e)}',
+            'camaras': [],
+            'total': 0
+        }), 500
 
 @app.route('/api/camaras/<ip>/snapshot', methods=['GET'])
 def obtener_snapshot(ip):
@@ -332,87 +380,147 @@ def obtener_snapshot(ip):
 @app.route('/api/camaras/detectar', methods=['GET'])
 def detectar_camaras():
     """Detecta cámaras basándose en los datos recibidos y config.py"""
-    camaras = []
-    seen_ips = set()
-    
-    # Primero, obtener cámaras de config.py si está disponible
-    if USAR_CONFIG_FILE and CAMARAS_CONFIGURADAS:
-        for ip in CAMARAS_CONFIGURADAS:
-            if ip in seen_ips:
-                continue
-            seen_ips.add(ip)
-            
-            info = obtener_info_camara(ip)
-            
-            # Verificar si hay snapshot en Redis
-            if isinstance(db, dict):
-                snapshot_data_str = db.get(f'snapshot:{ip}')
-            else:
-                snapshot_data_str = db.get(f'snapshot:{ip}')
-            
-            # Verificar estado
-            if isinstance(db, dict):
-                estado_data_str = db.get(f'estado:{ip}')
-            else:
-                estado_data_str = db.get(f'estado:{ip}')
-            
-            estado_data = json.loads(estado_data_str) if estado_data_str else None
-            snapshot_data = json.loads(snapshot_data_str) if snapshot_data_str else None
-            
-            # Determinar estado
-            if snapshot_data:
-                estado = snapshot_data.get('estado', 'activa')
-            elif estado_data:
-                estado = estado_data.get('estado', 'sin_acceso')
-            else:
-                estado = 'sin_acceso'  # No hay datos aún
-            
-            camaras.append({
-                'ip': ip,
-                'nombre': info.get('nombre', f'Cámara {ip}'),
-                'estado': estado,
-                'configurada': True,
-                'nuc_id': info.get('nuc') or snapshot_data.get('nuc_id') if snapshot_data else None
-            })
-    
-    # También agregar cámaras que vienen de snapshots pero no están en config
-    if isinstance(db, dict):
-        for key in db.keys():
-            if key.startswith('snapshot:'):
-                ip = key.replace('snapshot:', '')
-                if ip not in seen_ips:
+    try:
+        camaras = []
+        seen_ips = set()
+        
+        # Primero, obtener cámaras de config.py si está disponible
+        if USAR_CONFIG_FILE and CAMARAS_CONFIGURADAS:
+            for ip in CAMARAS_CONFIGURADAS:
+                try:
+                    if ip in seen_ips:
+                        continue
                     seen_ips.add(ip)
-                    data = json.loads(db[key])
+                    
+                    # Obtener info de la cámara con manejo de errores
+                    try:
+                        info = obtener_info_camara(ip)
+                    except Exception as e:
+                        print(f"⚠️  Error al obtener info de cámara {ip}: {e}")
+                        info = {'nombre': f'Cámara {ip}', 'nuc': None}
+                    
+                    # Verificar si hay snapshot en Redis
+                    snapshot_data_str = None
+                    estado_data_str = None
+                    
+                    try:
+                        if isinstance(db, dict):
+                            snapshot_data_str = db.get(f'snapshot:{ip}')
+                            estado_data_str = db.get(f'estado:{ip}')
+                        else:
+                            snapshot_data_str = db.get(f'snapshot:{ip}')
+                            estado_data_str = db.get(f'estado:{ip}')
+                    except Exception as e:
+                        print(f"⚠️  Error al leer de Redis para {ip}: {e}")
+                    
+                    # Parsear JSON con manejo de errores
+                    estado_data = None
+                    snapshot_data = None
+                    
+                    try:
+                        if estado_data_str:
+                            estado_data = json.loads(estado_data_str)
+                    except (json.JSONDecodeError, TypeError) as e:
+                        print(f"⚠️  Error al parsear estado_data para {ip}: {e}")
+                    
+                    try:
+                        if snapshot_data_str:
+                            snapshot_data = json.loads(snapshot_data_str)
+                    except (json.JSONDecodeError, TypeError) as e:
+                        print(f"⚠️  Error al parsear snapshot_data para {ip}: {e}")
+                    
+                    # Determinar estado
+                    if snapshot_data:
+                        estado = snapshot_data.get('estado', 'activa')
+                    elif estado_data:
+                        estado = estado_data.get('estado', 'sin_acceso')
+                    else:
+                        estado = 'sin_acceso'  # No hay datos aún
+                    
                     camaras.append({
                         'ip': ip,
-                        'nombre': f'Cámara {ip}',
-                        'estado': data.get('estado', 'activa'),
-                        'configurada': False,
-                        'nuc_id': data.get('nuc_id')
+                        'nombre': info.get('nombre', f'Cámara {ip}'),
+                        'estado': estado,
+                        'configurada': True,
+                        'nuc_id': info.get('nuc') or (snapshot_data.get('nuc_id') if snapshot_data else None)
                     })
-    else:
-        for key in db.scan_iter('snapshot:*'):
-            ip = key.replace('snapshot:', '')
-            if ip not in seen_ips:
-                seen_ips.add(ip)
-                data_str = db.get(key)
-                if data_str:
-                    data = json.loads(data_str)
-                    camaras.append({
-                        'ip': ip,
-                        'nombre': f'Cámara {ip}',
-                        'estado': data.get('estado', 'activa'),
-                        'configurada': False,
-                        'nuc_id': data.get('nuc_id')
-                    })
-    
-    return jsonify({
-        'success': True,
-        'camaras': camaras,
-        'total': len(camaras),
-        'modo': 'configurado' if USAR_CONFIG_FILE else 'automatico',
-        'timestamp': datetime.now().isoformat()
-    })
+                except Exception as e:
+                    print(f"⚠️  Error al procesar cámara {ip}: {e}")
+                    # Continuar con la siguiente cámara
+                    continue
+        
+        # También agregar cámaras que vienen de snapshots pero no están en config
+        try:
+            if isinstance(db, dict):
+                for key in list(db.keys()):  # Convertir a lista para evitar cambios durante iteración
+                    try:
+                        if key.startswith('snapshot:'):
+                            ip = key.replace('snapshot:', '')
+                            if ip not in seen_ips:
+                                seen_ips.add(ip)
+                                try:
+                                    data = json.loads(db[key])
+                                    camaras.append({
+                                        'ip': ip,
+                                        'nombre': f'Cámara {ip}',
+                                        'estado': data.get('estado', 'activa'),
+                                        'configurada': False,
+                                        'nuc_id': data.get('nuc_id')
+                                    })
+                                except (json.JSONDecodeError, TypeError) as e:
+                                    print(f"⚠️  Error al parsear snapshot de {ip}: {e}")
+                    except Exception as e:
+                        print(f"⚠️  Error al procesar key {key}: {e}")
+                        continue
+            else:
+                # Redis real
+                try:
+                    for key in db.scan_iter('snapshot:*'):
+                        try:
+                            ip = key.replace('snapshot:', '')
+                            if ip not in seen_ips:
+                                seen_ips.add(ip)
+                                data_str = db.get(key)
+                                if data_str:
+                                    try:
+                                        data = json.loads(data_str)
+                                        camaras.append({
+                                            'ip': ip,
+                                            'nombre': f'Cámara {ip}',
+                                            'estado': data.get('estado', 'activa'),
+                                            'configurada': False,
+                                            'nuc_id': data.get('nuc_id')
+                                        })
+                                    except (json.JSONDecodeError, TypeError) as e:
+                                        print(f"⚠️  Error al parsear snapshot de {ip}: {e}")
+                        except Exception as e:
+                            print(f"⚠️  Error al procesar key {key}: {e}")
+                            continue
+                except Exception as e:
+                    print(f"⚠️  Error al iterar Redis: {e}")
+        except Exception as e:
+            print(f"⚠️  Error al leer snapshots de Redis: {e}")
+        
+        return jsonify({
+            'success': True,
+            'camaras': camaras,
+            'total': len(camaras),
+            'modo': 'configurado' if USAR_CONFIG_FILE else 'automatico',
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        print(f"❌ Error crítico en detectar_camaras: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'Error al detectar cámaras: {str(e)}',
+            'camaras': [],
+            'total': 0,
+            'modo': 'error',
+            'timestamp': datetime.now().isoformat()
+        }), 500
 
 # ============================================
 # INICIO DEL SERVIDOR
